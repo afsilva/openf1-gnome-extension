@@ -1,0 +1,8 @@
+{
+  "uuid": "openf1dashboard@ansilva",
+  "name": "OpenF1 Dashboard",
+  "description": "GNOME Shell extension showing next F1 event and championship points using OpenF1 API.",
+  "shell-version": ["50"],
+  "version": 1,
+  "url": "https://openf1.org"
+}

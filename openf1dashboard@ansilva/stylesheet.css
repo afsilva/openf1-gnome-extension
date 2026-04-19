@@ -1,0 +1,29 @@
+.openf1-menu-box {
+  max-height: 820px; /* still 1080p-friendly */
+  width: 560px;
+}
+
+.openf1-row-compact {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  min-height: 0;
+}
+
+.openf1-row-compact .popup-menu-item-label {
+  font-size: 10.3pt;
+  line-height: 1.18;
+  color: rgba(255, 255, 255, 0.95);
+  white-space: normal;
+}
+
+/* Table-like standings rows */
+.openf1-row-table .popup-menu-item-label {
+  font-family: Monospace;
+  font-size: 9.8pt;
+  line-height: 1.12;
+  white-space: pre;
+}
+
+.openf1-row-dim .popup-menu-item-label {
+  opacity: 0.82;
+}
