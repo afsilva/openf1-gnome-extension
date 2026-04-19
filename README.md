@@ -48,31 +48,32 @@ AI assistance was used for implementation and documentation generation, with hum
 
 ## Install (local dev)
 
-From this directory:
+Clone (or download) this repository anywhere, then run:
 
 ```bash
-cd /home/ansilva/dev/openf1-gnome-extension
+cd /path/to/openf1-gnome-extension
+UUID="openf1dashboard@ansilva"
 mkdir -p ~/.local/share/gnome-shell/extensions
-cp -r openf1dashboard@ansilva ~/.local/share/gnome-shell/extensions/
+cp -r "$UUID" ~/.local/share/gnome-shell/extensions/
 ```
 
 Enable:
 
 ```bash
-gnome-extensions enable openf1dashboard@ansilva
+gnome-extensions enable "$UUID"
 ```
 
 Disable:
 
 ```bash
-gnome-extensions disable openf1dashboard@ansilva
+gnome-extensions disable "$UUID"
 ```
 
 Reload quickly (Wayland-safe method):
 
 ```bash
-gnome-extensions disable openf1dashboard@ansilva
-gnome-extensions enable openf1dashboard@ansilva
+gnome-extensions disable "$UUID"
+gnome-extensions enable "$UUID"
 ```
 
 ---
@@ -201,11 +202,12 @@ I want to open source this extension for educational reasons, please take the me
 Check extension state:
 
 ```bash
-gnome-extensions info openf1dashboard@ansilva
+UUID="openf1dashboard@ansilva"
+gnome-extensions info "$UUID"
 gdbus call --session --dest org.gnome.Shell.Extensions \
   --object-path /org/gnome/Shell/Extensions \
   --method org.gnome.Shell.Extensions.GetExtensionErrors \
-  openf1dashboard@ansilva
+  "$UUID"
 ```
 
 Inspect logs:
