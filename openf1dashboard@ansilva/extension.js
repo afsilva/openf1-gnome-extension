@@ -932,7 +932,6 @@ class OpenF1Indicator extends PanelMenu.Button {
         for (const d of topDrivers)
             rows.push(`${d.rank}. ${d.name} — ${d.points}p`);
 
-        rows.push({text: ' ', dim: true});
         rows.push({text: 'Teams', dim: true});
         for (const t of topTeams)
             rows.push(`${t.rank}. ${t.team} — ${t.points}p`);
