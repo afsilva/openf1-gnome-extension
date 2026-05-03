@@ -21,6 +21,7 @@ const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
 const UI_SCHEMA_VERSION = 2;
+const BUILD_COMMIT = '308f5b2';
 
 const ALPHA3_TO_ALPHA2 = {
     AUS: 'AU', CHN: 'CN', JPN: 'JP', BHR: 'BH', SAU: 'SA', KSA: 'SA',
@@ -209,8 +210,9 @@ class OpenF1Indicator extends PanelMenu.Button {
         GObject.registerClass(this);
     }
 
-    constructor() {
+    constructor(buildVersion = '1') {
         super(0.0, 'OpenF1 Dashboard');
+        this._buildVersion = String(buildVersion);
 
         this._http = new Soup.Session({
             timeout: 15,
@@ -243,6 +245,10 @@ class OpenF1Indicator extends PanelMenu.Button {
             this._onRefreshNow();
         });
         this.menu.addMenuItem(this._refreshNowItem);
+
+        this._buildInfoItem = new PopupMenu.PopupMenuItem(`Build: v${this._buildVersion} (${BUILD_COMMIT})`, {reactive: false, can_focus: false});
+        this._buildInfoItem.add_style_class_name('openf1-row-dim');
+        this.menu.addMenuItem(this._buildInfoItem);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
@@ -750,7 +756,7 @@ class OpenF1Indicator extends PanelMenu.Button {
             {text: `Last updated: ${formatUpdatedTs(this._cache.meta?.lastRefreshTs || 0)} (${this._cache.meta?.lastRefreshSource || 'CACHE'})`, dim: true},
             {text: liveSession
                 ? `LIVE now: ${abbreviateSessionName(liveSession.session_name)} (${formatCompactOffset(liveSession.date_start, meetingOffset)} → ${formatCompactOffset(liveSession.date_end || liveSession.date_start, meetingOffset)})`
-                : 'Sessions (W/U/L):', dim: true},
+                : 'Sessions (System/UTC/Local):', dim: true},
         ];
 
         const sessionLimit = 8;
@@ -761,7 +767,7 @@ class OpenF1Indicator extends PanelMenu.Button {
             const marker = isLive ? '🔴' : (isNext ? '➡' : '•');
             const short = abbreviateSessionName(s.session_name);
             rows.push({
-                text: `${marker} ${short}: ${formatCompactOffset(s.date_start, meetingOffset)} / ${formatCompactTz(s.date_start, 'utc')} / ${formatCompactTz(s.date_start, 'local')}`,
+                text: `${marker} ${short}: ${formatCompactTz(s.date_start, 'local')} / ${formatCompactTz(s.date_start, 'utc')} / ${formatCompactOffset(s.date_start, meetingOffset)}`,
             });
         }
 
@@ -944,7 +950,8 @@ export default class OpenF1DashboardExtension extends Extension {
         if (this._style)
             St.ThemeContext.get_for_stage(global.stage).get_theme().load_stylesheet(this._style);
 
-        this._indicator = new OpenF1Indicator();
+        const buildVersion = this.metadata?.version ?? '1';
+        this._indicator = new OpenF1Indicator(buildVersion);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
     }
 
