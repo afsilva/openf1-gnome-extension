@@ -11,8 +11,8 @@ A GNOME Shell extension that displays:
      - your system local time
 
 2. **Championship points**
-   - Drivers standings (all drivers)
-   - Constructors standings (all teams)
+   - Drivers standings (Top 10, full names)
+   - Constructors standings (Top 10 teams)
 
 Data source: [OpenF1 API](https://api.openf1.org)
 
@@ -175,17 +175,17 @@ Also -- are you able to see via the API if a race gets canceled or postponed?
 ```text
 Good progress. Here are updates:
 - If a race is canceled, skip it and do not show in the extension, show the next non-canceled schedule race instead.
-- For the drivers standing, show their name, not number. Show all drivers, not just top 10, maybe split the section in two columns
+- For the drivers standing, show their name, not number.
 - The constructors championship still seems to be missing team name, and only showing 1 entry?
 ```
 
-### Prompt 6 — UI readability
+### Prompt 6 — UI readability and final layout decision
 
 ```text
 Improvements:
 - Let's improve the display so it is more legible
-- let's also split the construction into two columns
 - let's use abbreviation for the session names
+- final UI: no 2-column table; show standings as simple lists: Top 10 drivers (full names) then Top 10 teams
 ```
 
 ### Prompt 7 — Security + open-source documentation

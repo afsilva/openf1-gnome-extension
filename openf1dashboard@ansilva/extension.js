@@ -20,6 +20,7 @@ const MAX_CACHE_BYTES = 2 * 1024 * 1024;         // 2MB on-disk cache cap
 const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
+const UI_SCHEMA_VERSION = 2;
 
 const ALPHA3_TO_ALPHA2 = {
     AUS: 'AU', CHN: 'CN', JPN: 'JP', BHR: 'BH', SAU: 'SA', KSA: 'SA',
@@ -73,6 +74,41 @@ function formatCompactTz(iso, tz) {
             return dt.to_local().format('%m-%d %H:%M');
 
         return dt.to_timezone(GLib.TimeZone.new(tz)).format('%m-%d %H:%M');
+    } catch (_e) {
+        return 'N/A';
+    }
+}
+
+function parseOffsetToSeconds(offset) {
+    // expected examples: "+02:00", "-05:30"
+    if (!offset || typeof offset !== 'string')
+        return null;
+
+    const m = offset.trim().match(/^([+-])(\d{2}):(\d{2})$/);
+    if (!m)
+        return null;
+
+    const sign = m[1] === '-' ? -1 : 1;
+    const hh = Number.parseInt(m[2], 10);
+    const mm = Number.parseInt(m[3], 10);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm))
+        return null;
+
+    return sign * ((hh * 60 * 60) + (mm * 60));
+}
+
+function formatCompactOffset(iso, offset) {
+    try {
+        const dt = parseIso(iso);
+        if (!dt)
+            return 'N/A';
+
+        const sec = parseOffsetToSeconds(offset);
+        if (sec === null)
+            return formatCompactTz(iso, 'utc');
+
+        const shifted = dt.to_timezone(GLib.TimeZone.new_utc()).add_seconds(sec);
+        return shifted ? shifted.format('%m-%d %H:%M') : 'N/A';
     } catch (_e) {
         return 'N/A';
     }
@@ -141,10 +177,12 @@ function fitCell(text, width) {
     return `${s.slice(0, width - 1)}…`;
 }
 
-function sanitizeUiText(value, maxLen = 160) {
+function sanitizeUiText(value, maxLen = 160, preserveNewlines = false) {
     const text = String(value ?? '');
-    // Strip control chars and normalize whitespace for safe UI rendering
-    const clean = text.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+    // Strip control chars but optionally preserve newline for multi-line table cells
+    let clean = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+    if (!preserveNewlines)
+        clean = clean.replace(/[\r\n]+/g, ' ');
     return clean.length > maxLen ? `${clean.slice(0, maxLen - 1)}…` : clean;
 }
 
@@ -208,21 +246,13 @@ class OpenF1Indicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        this._driversHeader = new PopupMenu.PopupMenuItem('Drivers Championship', {reactive: false, can_focus: false});
+        this._driversHeader = new PopupMenu.PopupMenuItem('Championship (Top 10)', {reactive: false, can_focus: false});
         this.menu.addMenuItem(this._driversHeader);
         this._driversContent = new PopupMenu.PopupMenuSection();
         this.menu.addMenuItem(this._driversContent);
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        this._teamsHeader = new PopupMenu.PopupMenuItem('Constructors Championship', {reactive: false, can_focus: false});
-        this.menu.addMenuItem(this._teamsHeader);
-        this._teamsContent = new PopupMenu.PopupMenuSection();
-        this.menu.addMenuItem(this._teamsContent);
-
         this._setSectionMessage(this._calendarContent, 'Loading calendar…');
         this._setSectionMessage(this._driversContent, 'Loading standings…');
-        this._setSectionMessage(this._teamsContent, 'Loading standings…');
 
         // Paint from cache immediately if available
         this._applyCachedUi();
@@ -252,7 +282,7 @@ class OpenF1Indicator extends PanelMenu.Button {
                 return {
                     endpoints: {},
                     ui: {},
-                    meta: {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE'},
+                    meta: {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION},
                     standings: {sessionPoints: {}, driverInfo: {}},
                 };
 
@@ -264,9 +294,14 @@ class OpenF1Indicator extends PanelMenu.Button {
             if (!parsed.ui)
                 parsed.ui = {};
             if (!parsed.meta)
-                parsed.meta = {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE'};
+                parsed.meta = {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION};
             if (!parsed.meta.lastRefreshSource)
                 parsed.meta.lastRefreshSource = 'CACHE';
+
+            if ((parsed.meta.uiSchemaVersion || 0) < UI_SCHEMA_VERSION) {
+                parsed.ui = {};
+                parsed.meta.uiSchemaVersion = UI_SCHEMA_VERSION;
+            }
             if (!parsed.standings)
                 parsed.standings = {sessionPoints: {}, driverInfo: {}};
             if (!parsed.standings.sessionPoints)
@@ -278,7 +313,7 @@ class OpenF1Indicator extends PanelMenu.Button {
             return {
                 endpoints: {},
                 ui: {},
-                meta: {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE'},
+                meta: {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION},
                 standings: {sessionPoints: {}, driverInfo: {}},
             };
         }
@@ -319,10 +354,7 @@ class OpenF1Indicator extends PanelMenu.Button {
             this._setRows(this._driversContent, ui.driverRows);
             this._hasStandingsData = true;
         }
-        if (Array.isArray(ui.teamRows) && ui.teamRows.length) {
-            this._setRows(this._teamsContent, ui.teamRows);
-            this._hasStandingsData = true;
-        }
+        // teamRows kept in cache for compatibility, rendered in unified standings table
         if (ui.panelLabel)
             this._label.text = sanitizeUiText(ui.panelLabel, 32);
     }
@@ -406,8 +438,8 @@ class OpenF1Indicator extends PanelMenu.Button {
         section.removeAll();
     }
 
-    _createCompactRow(text, isDim = false, className = null) {
-        const safeText = sanitizeUiText(text, 220);
+    _createCompactRow(text, isDim = false, className = null, preserveNewlines = false) {
+        const safeText = sanitizeUiText(text, 220, preserveNewlines);
         const item = new PopupMenu.PopupMenuItem(safeText, {reactive: false, can_focus: false});
         item.add_style_class_name('openf1-row-compact');
         if (className)
@@ -428,7 +460,7 @@ class OpenF1Indicator extends PanelMenu.Button {
             if (typeof row === 'string') {
                 section.addMenuItem(this._createCompactRow(row));
             } else {
-                section.addMenuItem(this._createCompactRow(row.text, !!row.dim, row.className || null));
+                section.addMenuItem(this._createCompactRow(row.text, !!row.dim, row.className || null, !!row.preserveNewlines));
             }
         }
     }
@@ -467,6 +499,9 @@ class OpenF1Indicator extends PanelMenu.Button {
 
                     if (status === 429)
                         throw new Error('OpenF1 API rate limit reached (429)');
+
+                    if (status === 401)
+                        throw new Error('OpenF1 API restricted during live session (401)');
 
                     if (status < 200 || status >= 300)
                         throw new Error(`HTTP ${status}`);
@@ -507,7 +542,7 @@ class OpenF1Indicator extends PanelMenu.Button {
 
         // Calendar path
         try {
-            const forceApi = true;
+            const forceApi = !!force;
             const [meetingsResp, sessionsResp] = await Promise.all([
                 this._fetchJsonCached(`meetings?year=${year}`, 24 * 60 * 60, forceApi),
                 this._fetchJsonCached(`sessions?year=${year}`, 24 * 60 * 60, forceApi),
@@ -523,6 +558,10 @@ class OpenF1Indicator extends PanelMenu.Button {
                 this._label.text = 'F1 RL';
                 if (!this._hasCalendarData)
                     this._setSectionMessage(this._calendarContent, 'OpenF1 rate limited (429). Using cache.');
+            } else if (msg.includes('401')) {
+                this._label.text = 'F1 🔒';
+                if (!this._hasCalendarData)
+                    this._setSectionMessage(this._calendarContent, 'OpenF1 restricted during live session (401). Showing cache.');
             } else {
                 this._label.text = 'F1 !';
                 if (!this._hasCalendarData)
@@ -545,15 +584,14 @@ class OpenF1Indicator extends PanelMenu.Button {
         } catch (e) {
             const msg = String(e?.message || e);
             if (msg.includes('429')) {
-                if (!this._hasStandingsData) {
+                if (!this._hasStandingsData)
                     this._setSectionMessage(this._driversContent, 'Rate limited (429). No cached standings yet.');
-                    this._setSectionMessage(this._teamsContent, 'Rate limited (429). No cached standings yet.');
-                }
+            } else if (msg.includes('401')) {
+                if (!this._hasStandingsData)
+                    this._setSectionMessage(this._driversContent, 'OpenF1 restricted during live session (401). Showing cache.');
             } else {
-                if (!this._hasStandingsData) {
+                if (!this._hasStandingsData)
                     this._setSectionMessage(this._driversContent, 'Standings unavailable (network/API error).');
-                    this._setSectionMessage(this._teamsContent, 'Standings unavailable (network/API error).');
-                }
             }
         }
 
@@ -580,6 +618,14 @@ class OpenF1Indicator extends PanelMenu.Button {
         const n = (session?.session_name || '').toLowerCase();
         const t = (session?.session_type || '').toLowerCase();
         return n === 'race' || n.includes('sprint') || t === 'race' || t.includes('sprint');
+    }
+
+    _isSessionLive(session, now) {
+        const start = parseIso(session?.date_start);
+        const end = parseIso(session?.date_end || session?.date_start);
+        if (!start || !end || !now)
+            return false;
+        return now.compare(start) >= 0 && now.compare(end) <= 0;
     }
 
     async _loadDriverDirectoryForSession(sessionKey) {
@@ -625,13 +671,16 @@ class OpenF1Indicator extends PanelMenu.Button {
         let nextSession = null;
 
         const sortedMeetings = [...meetings].sort((a, b) => parseIso(a.date_start).to_unix() - parseIso(b.date_start).to_unix());
+
+        // Primary selection (same strategy as macOS widget):
+        // - first upcoming meeting
+        // - or current active meeting window
         for (const meeting of sortedMeetings) {
             const mStart = parseIso(meeting.date_start);
             const mEnd = parseIso(meeting.date_end);
             const mSessions = byMeeting.get(meeting.meeting_key) || [];
             const activeSessions = mSessions.filter(s => !s.is_cancelled);
 
-            // Skip fully cancelled weekends
             if (!activeSessions.length)
                 continue;
 
@@ -650,6 +699,38 @@ class OpenF1Indicator extends PanelMenu.Button {
             }
         }
 
+        // Fallback 1: if no active window matched, pick first upcoming non-cancelled meeting.
+        if (!selectedMeeting) {
+            for (const meeting of sortedMeetings) {
+                const mStart = parseIso(meeting.date_start);
+                const mSessions = byMeeting.get(meeting.meeting_key) || [];
+                const activeSessions = mSessions.filter(s => !s.is_cancelled);
+                if (!activeSessions.length)
+                    continue;
+                if (now.compare(mStart) < 0) {
+                    selectedMeeting = meeting;
+                    selectedMeetingSessions = activeSessions;
+                    nextSession = activeSessions[0] || null;
+                    break;
+                }
+            }
+        }
+
+        // Fallback 2: final fallback to latest non-cancelled meeting (show completed weekend context).
+        if (!selectedMeeting) {
+            for (let i = sortedMeetings.length - 1; i >= 0; i--) {
+                const meeting = sortedMeetings[i];
+                const mSessions = byMeeting.get(meeting.meeting_key) || [];
+                const activeSessions = mSessions.filter(s => !s.is_cancelled);
+                if (!activeSessions.length)
+                    continue;
+                selectedMeeting = meeting;
+                selectedMeetingSessions = activeSessions;
+                nextSession = activeSessions.find(s => now.compare(parseIso(s.date_start)) < 0) || null;
+                break;
+            }
+        }
+
         if (!selectedMeeting) {
             this._setSectionMessage(this._calendarContent, 'No upcoming weekend this season');
             this._label.text = 'F1 ✓';
@@ -657,25 +738,30 @@ class OpenF1Indicator extends PanelMenu.Button {
             return;
         }
 
-        const localTz = selectedMeeting.gmt_offset ? this._tzNameFromOffset(selectedMeeting.gmt_offset) : 'UTC';
         const flag = countryFlag(selectedMeeting.country_code);
+        const meetingOffset = selectedMeeting.gmt_offset || null;
+
+        const liveSession = selectedMeetingSessions.find(s => this._isSessionLive(s, now)) || null;
 
         const rows = [
             {text: `${flag} ${selectedMeeting.meeting_name} (${selectedMeeting.country_code || 'N/A'})`},
             {text: `${selectedMeeting.location}`, dim: true},
-            {text: `Weekend: ${formatCompactTz(selectedMeeting.date_start, localTz)} → ${formatCompactTz(selectedMeeting.date_end, localTz)}`, dim: true},
+            {text: `Weekend: ${formatCompactOffset(selectedMeeting.date_start, meetingOffset)} → ${formatCompactOffset(selectedMeeting.date_end, meetingOffset)}`, dim: true},
             {text: `Last updated: ${formatUpdatedTs(this._cache.meta?.lastRefreshTs || 0)} (${this._cache.meta?.lastRefreshSource || 'CACHE'})`, dim: true},
-            {text: 'Sessions (L/U/S):', dim: true},
+            {text: liveSession
+                ? `LIVE now: ${abbreviateSessionName(liveSession.session_name)} (${formatCompactOffset(liveSession.date_start, meetingOffset)} → ${formatCompactOffset(liveSession.date_end || liveSession.date_start, meetingOffset)})`
+                : 'Sessions (W/U/L):', dim: true},
         ];
 
         const sessionLimit = 8;
         const shownSessions = selectedMeetingSessions.slice(0, sessionLimit);
         for (const s of shownSessions) {
-            const isNext = nextSession && s.session_key === nextSession.session_key;
-            const marker = isNext ? '➡' : '•';
+            const isLive = liveSession && s.session_key === liveSession.session_key;
+            const isNext = !isLive && nextSession && s.session_key === nextSession.session_key;
+            const marker = isLive ? '🔴' : (isNext ? '➡' : '•');
             const short = abbreviateSessionName(s.session_name);
             rows.push({
-                text: `${marker} ${short}: ${formatCompactTz(s.date_start, localTz)} / ${formatCompactTz(s.date_start, 'utc')} / ${formatCompactTz(s.date_start, 'local')}`,
+                text: `${marker} ${short}: ${formatCompactOffset(s.date_start, meetingOffset)} / ${formatCompactTz(s.date_start, 'utc')} / ${formatCompactTz(s.date_start, 'local')}`,
             });
         }
 
@@ -685,7 +771,9 @@ class OpenF1Indicator extends PanelMenu.Button {
         if (!selectedMeetingSessions.length)
             rows.push({text: 'No session schedule found for this meeting', dim: true});
 
-        if (nextSession)
+        if (liveSession)
+            this._label.text = `${flag} LIVE ${abbreviateSessionName(liveSession.session_name)}`;
+        else if (nextSession)
             this._label.text = `${flag} ${abbreviateSessionName(nextSession.session_name)}`;
         else
             this._label.text = `${flag} done`;
@@ -826,70 +914,26 @@ class OpenF1Indicator extends PanelMenu.Button {
     _updateStandings({drivers, teams}) {
         if (!drivers.length) {
             this._setSectionMessage(this._driversContent, 'No completed race results yet');
-            this._setSectionMessage(this._teamsContent, 'No completed race results yet');
             this._hasStandingsData = true;
             return;
         }
 
-        // Compact table-like two-column rows (monospace, less dead space)
-        const makeDriverCell = d => {
-            const rank = `${String(d.rank).padStart(2, ' ')}.`;
-            const name = fitCell(d.name || '', 15);
-            const pts = `${d.points}p`.padStart(4, ' ');
-            return `${rank} ${name} ${pts}`;
-        };
+        const topDrivers = drivers.slice(0, 10);
+        const topTeams = teams.slice(0, 10);
 
-        const left = [];
-        const right = [];
-        const split = Math.ceil(drivers.length / 2);
-        for (let i = 0; i < drivers.length; i++) {
-            const row = makeDriverCell(drivers[i]);
-            if (i < split)
-                left.push(row);
-            else
-                right.push(row);
-        }
+        const rows = [];
+        rows.push({text: 'Drivers', dim: true});
+        for (const d of topDrivers)
+            rows.push(`${d.rank}. ${d.name} — ${d.points}p`);
 
-        const dCellW = 24;
-        const driverRows = [];
-        const maxRows = Math.max(left.length, right.length);
-        for (let i = 0; i < maxRows; i++) {
-            const l = fitCell(left[i] || '', dCellW);
-            const r = right[i] ? fitCell(right[i], dCellW) : '';
-            driverRows.push({text: r ? `${l} │ ${r}` : l, className: 'openf1-row-table'});
-        }
+        rows.push({text: ' ', dim: true});
+        rows.push({text: 'Teams', dim: true});
+        for (const t of topTeams)
+            rows.push(`${t.rank}. ${t.team} — ${t.points}p`);
 
-        const makeTeamCell = t => {
-            const rank = `${String(t.rank).padStart(2, ' ')}.`;
-            const name = fitCell(t.team || '', 12);
-            const pts = `${t.points}p`.padStart(4, ' ');
-            return `${rank} ${name} ${pts}`;
-        };
-
-        const tLeft = [];
-        const tRight = [];
-        const tSplit = Math.ceil(teams.length / 2);
-        for (let i = 0; i < teams.length; i++) {
-            const row = makeTeamCell(teams[i]);
-            if (i < tSplit)
-                tLeft.push(row);
-            else
-                tRight.push(row);
-        }
-
-        const tCellW = 21;
-        const teamRows = [];
-        const tMax = Math.max(tLeft.length, tRight.length);
-        for (let i = 0; i < tMax; i++) {
-            const l = fitCell(tLeft[i] || '', tCellW);
-            const r = tRight[i] ? fitCell(tRight[i], tCellW) : '';
-            teamRows.push({text: r ? `${l} │ ${r}` : l, className: 'openf1-row-table'});
-        }
-
-        this._setRows(this._driversContent, driverRows);
-        this._setRows(this._teamsContent, teamRows);
-        this._cache.ui.driverRows = driverRows;
-        this._cache.ui.teamRows = teamRows;
+        this._setRows(this._driversContent, rows);
+        this._cache.ui.driverRows = rows;
+        this._cache.ui.teamRows = topTeams;
         this._hasStandingsData = true;
     }
 }

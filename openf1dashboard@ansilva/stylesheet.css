@@ -1,26 +1,27 @@
 .openf1-menu-box {
-  max-height: 820px; /* still 1080p-friendly */
-  width: 560px;
+  max-height: 760px;
+  width: 500px;
 }
 
 .openf1-row-compact {
-  padding-top: 2px;
-  padding-bottom: 2px;
+  padding-top: 1px;
+  padding-bottom: 1px;
   min-height: 0;
 }
 
 .openf1-row-compact .popup-menu-item-label {
-  font-size: 10.3pt;
-  line-height: 1.18;
+  font-size: 9.8pt;
+  line-height: 1.12;
   color: rgba(255, 255, 255, 0.95);
   white-space: normal;
 }
 
-/* Table-like standings rows */
+/* strict fixed-width standings table */
 .openf1-row-table .popup-menu-item-label {
   font-family: Monospace;
-  font-size: 9.8pt;
-  line-height: 1.12;
+  font-size: 9.2pt;
+  line-height: 1.08;
+  font-weight: 400;
   white-space: pre;
 }
 
