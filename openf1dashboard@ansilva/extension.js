@@ -21,16 +21,18 @@ const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
 const UI_SCHEMA_VERSION = 2;
-const BUILD_COMMIT = '308f5b2';
+const BUILD_COMMIT = 'cad7ca0';
 
 const ALPHA3_TO_ALPHA2 = {
     AUS: 'AU', CHN: 'CN', JPN: 'JP', BHR: 'BH', SAU: 'SA', KSA: 'SA',
     USA: 'US', ITA: 'IT', GBR: 'GB', BEL: 'BE', HUN: 'HU',
     NLD: 'NL', AZE: 'AZ', SGP: 'SG', MEX: 'MX', BRA: 'BR',
-    QAT: 'QA', ARE: 'AE', UAE: 'AE', CAN: 'CA', ESP: 'ES', MCO: 'MC',
+    QAT: 'QA', ARE: 'AE', UAE: 'AE', CAN: 'CA', ESP: 'ES', MCO: 'MC', MON: 'MC',
     AUT: 'AT', FRA: 'FR', DEU: 'DE', CHE: 'CH', SWE: 'SE',
     FIN: 'FI', DNK: 'DK', NOR: 'NO', PRT: 'PT', POL: 'PL',
 };
+
+const _unknownCountryCodesLogged = new Set();
 
 function isoNow() {
     return GLib.DateTime.new_now_utc().format_iso8601();
@@ -137,13 +139,23 @@ function countryFlag(code) {
     if (upper.length === 3)
         alpha2 = ALPHA3_TO_ALPHA2[upper] || '';
 
-    if (!alpha2 || alpha2.length !== 2)
+    if (!alpha2 || alpha2.length !== 2) {
+        if (!_unknownCountryCodesLogged.has(upper)) {
+            _unknownCountryCodesLogged.add(upper);
+            console.warn(`[openf1dashboard] Unknown country code: ${upper}`);
+        }
         return '🏁';
+    }
 
     const a = alpha2.charCodeAt(0);
     const b = alpha2.charCodeAt(1);
-    if (a < 65 || a > 90 || b < 65 || b > 90)
+    if (a < 65 || a > 90 || b < 65 || b > 90) {
+        if (!_unknownCountryCodesLogged.has(upper)) {
+            _unknownCountryCodesLogged.add(upper);
+            console.warn(`[openf1dashboard] Invalid alpha2 country code derived from ${upper}: ${alpha2}`);
+        }
         return '🏁';
+    }
 
     return String.fromCodePoint(127397 + a, 127397 + b);
 }
