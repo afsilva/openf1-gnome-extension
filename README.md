@@ -29,20 +29,16 @@ Data source: [OpenF1 API](https://api.openf1.org)
 This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
 
 - Full license text: [`LICENSE`](./LICENSE)
+- The extension upload bundle also includes [`openf1dashboard@ansilva/LICENSE`](./openf1dashboard%40ansilva/LICENSE)
 - SPDX identifier: `GPL-3.0-or-later`
 
 ---
 
-## AI technologies used in development
+## Development transparency
 
-This project was built with **AI-assisted development**. For transparency:
+This project used AI-assisted development tooling during implementation and documentation work. The project author directed the requirements, reviewed the code, performed GNOME Shell runtime validation, and remains responsible for the submitted extension.
 
-- **Agent framework:** Goose (AAIF) coding agent workflow
-- **LLM assistance:** Large language model code generation/refactoring during iterative development
-- **Human role:** Product direction, review, and acceptance testing by the project author
-- **Verification loop:** GNOME Shell runtime checks (`gnome-extensions`, `gdbus`, `journalctl`) and iterative fixes
-
-AI assistance was used for implementation and documentation generation, with human-driven requirements and final decisions.
+Validation included GNOME Shell runtime checks with `gnome-extensions`, `gdbus`, and `journalctl`, plus iterative fixes based on observed behavior.
 
 ---
 
@@ -75,6 +71,33 @@ Reload quickly (Wayland-safe method):
 gnome-extensions disable "$UUID"
 gnome-extensions enable "$UUID"
 ```
+
+---
+
+## Package for extensions.gnome.org
+
+Create the upload bundle from the repository root:
+
+```bash
+gnome-extensions pack --force --extra-source=LICENSE openf1dashboard@ansilva
+```
+
+This creates:
+
+```text
+openf1dashboard@ansilva.shell-extension.zip
+```
+
+The generated archive should contain only the files needed at runtime:
+
+```text
+metadata.json
+extension.js
+stylesheet.css
+LICENSE
+```
+
+The generated `.shell-extension.zip` file is intentionally ignored by git.
 
 ---
 
