@@ -21,6 +21,7 @@ const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
 const UI_SCHEMA_VERSION = 2;
+const BUILD_VERSION = '2';
 const BUILD_COMMIT = 'cad7ca0';
 
 const ALPHA3_TO_ALPHA2 = {
@@ -231,6 +232,7 @@ class OpenF1Indicator extends PanelMenu.Button {
             user_agent: 'OpenF1-Dashboard-GNOME/1.0',
         });
         this._refreshSourceId = 0;
+        this._refreshNowSignalId = 0;
         this._isRefreshing = false;
         this._hasCalendarData = false;
         this._hasStandingsData = false;
@@ -253,7 +255,7 @@ class OpenF1Indicator extends PanelMenu.Button {
         this.menu.addMenuItem(this._calendarContent);
 
         this._refreshNowItem = new PopupMenu.PopupMenuItem('Refresh now');
-        this._refreshNowItem.connect('activate', () => {
+        this._refreshNowSignalId = this._refreshNowItem.connect('activate', () => {
             this._onRefreshNow();
         });
         this.menu.addMenuItem(this._refreshNowItem);
@@ -287,9 +289,15 @@ class OpenF1Indicator extends PanelMenu.Button {
 
     destroy() {
         if (this._refreshSourceId) {
-            GLib.source_remove(this._refreshSourceId);
+            GLib.Source.remove(this._refreshSourceId);
             this._refreshSourceId = 0;
         }
+
+        if (this._refreshNowSignalId && this._refreshNowItem) {
+            this._refreshNowItem.disconnect(this._refreshNowSignalId);
+            this._refreshNowSignalId = 0;
+        }
+
         super.destroy();
     }
 
@@ -961,8 +969,7 @@ export default class OpenF1DashboardExtension extends Extension {
         if (this._style)
             St.ThemeContext.get_for_stage(global.stage).get_theme().load_stylesheet(this._style);
 
-        const buildVersion = this.metadata?.version ?? '1';
-        this._indicator = new OpenF1Indicator(buildVersion);
+        this._indicator = new OpenF1Indicator(BUILD_VERSION);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
     }
 
@@ -975,5 +982,7 @@ export default class OpenF1DashboardExtension extends Extension {
         if (this._style)
             St.ThemeContext.get_for_stage(global.stage).get_theme().unload_stylesheet(this._style);
         this._style = null;
+
+        _unknownCountryCodesLogged.clear();
     }
 }
