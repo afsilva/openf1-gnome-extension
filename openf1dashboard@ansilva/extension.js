@@ -21,8 +21,8 @@ const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
 const UI_SCHEMA_VERSION = 3;
-const BUILD_VERSION = '2';
-const BUILD_COMMIT = 'cad7ca0';
+const BUILD_VERSION = '3';
+const BUILD_COMMIT = 'df226d8';
 
 const _unknownCountryCodesLogged = new Set();
 

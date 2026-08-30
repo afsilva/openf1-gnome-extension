@@ -9,12 +9,15 @@ A GNOME Shell extension that displays:
      - race local time
      - UTC
      - your system local time
+   - Uses text status labels such as `LIVE`, `NEXT`, and `DONE` instead of emoji in the GNOME-review-ready `main` branch
 
 2. **Championship points**
    - Drivers standings (Top 10, full names)
    - Constructors standings (Top 10 teams)
 
 Data source: [OpenF1 API](https://api.openf1.org)
+
+The previous emoji/flag-based UI is preserved in the [`emoji-ui-preserved`](https://github.com/afsilva/openf1-gnome-extension/tree/emoji-ui-preserved) branch.
 
 ---
 
@@ -76,6 +79,8 @@ gnome-extensions enable "$UUID"
 
 ## Package for extensions.gnome.org
 
+The `main` branch is the GNOME-review-ready version. It avoids emoji UI elements, aborts pending HTTP requests on disable, and uses asynchronous cache reads in the GNOME Shell process.
+
 Create the upload bundle from the repository root:
 
 ```bash
@@ -128,9 +133,11 @@ This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1
 - Cache-first design reduces API pressure and failure exposure.
 - Explicit refresh policy (daily off-weekend, hourly race weekend).
 - Defensive handling for API 404/429 and canceled sessions.
+- Pending HTTP requests are aborted when the extension is disabled/destroyed.
 
 ### A05 Security Misconfiguration
 - HTTP session has timeout configured.
+- Cache file reads use asynchronous Gio APIs to avoid blocking the GNOME Shell process.
 - Error messages shown in UI are generic (no raw payload dump).
 
 ### A06 Vulnerable/Outdated Components
@@ -156,67 +163,17 @@ This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1
 - Response size cap (1MB)
 - On-disk cache size cap (2MB)
 - Endpoint cache entry cap
+- Asynchronous cache reads in the GNOME Shell process
+- HTTP request abort on extension disable/destroy
 - Sanitized UI text rendering
+- Text-based status labels for the GNOME-review-ready branch
 - Genericized error surface in UI
 
 ---
 
-## Reproducible prompt pack (to rebuild the same outcome)
+## AI-assisted development note
 
-If you want to recreate this extension with an LLM coding agent, use these prompts in order.
-
-### Prompt 1 — Base product requirements
-
-```text
-I'd like to build a gnome 50 compatible extension that uses OpenF1 API. The extension has 3 main sections:
-- Calendar, where it show the upcoming racing weekend, and during the race weekend what's the next upcoming event. Times should be shown in race local time, UTC, and the systems time.
-- Current championship points for drivers and teams.
-```
-
-### Prompt 2 — Reliability and API constraints
-
-```text
-Also, given we are using a free API, let's make sure we cache results if we can, and just check in for updates once a day during the week, and once an hour during race weekends.
-```
-
-### Prompt 3 — Manual control
-
-```text
-add a refresh now option
-```
-
-### Prompt 4 — Data quality and event status behavior
-
-```text
-the standings are still failing.
-
-Also -- are you able to see via the API if a race gets canceled or postponed?
-```
-
-### Prompt 5 — Canceled-event UX and standings completeness
-
-```text
-Good progress. Here are updates:
-- If a race is canceled, skip it and do not show in the extension, show the next non-canceled schedule race instead.
-- For the drivers standing, show their name, not number.
-- The constructors championship still seems to be missing team name, and only showing 1 entry?
-```
-
-### Prompt 6 — UI readability and final layout decision
-
-```text
-Improvements:
-- Let's improve the display so it is more legible
-- let's use abbreviation for the session names
-- final UI: no 2-column table; show standings as simple lists: Top 10 drivers (full names) then Top 10 teams
-```
-
-### Prompt 7 — Security + open-source documentation
-
-```text
-You are now a security analyst, and you are going to review the code, and make sure it passes OWASP top 10 security checklist.
-I want to open source this extension for educational reasons, please take the meaningful prompts I used in this chat to build this application and add it to the README.md, make sure that if someone re-uses the prompts that the application will be built with the same outcome.
-```
+This repository previously included a prompt-history section for educational transparency. For the GNOME-review-ready `main` branch, the documentation focuses on maintainership, runtime behavior, validation, and packaging. The author remains responsible for understanding and maintaining the submitted code.
 
 ---
 
