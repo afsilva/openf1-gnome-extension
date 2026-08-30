@@ -20,9 +20,9 @@ const MAX_CACHE_BYTES = 2 * 1024 * 1024;         // 2MB on-disk cache cap
 const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
-const UI_SCHEMA_VERSION = 4;
-const BUILD_VERSION = '5';
-const BUILD_COMMIT = '7342a42';
+const UI_SCHEMA_VERSION = 5;
+const BUILD_VERSION = '6';
+const BUILD_COMMIT = 'timezone-fix';
 
 const _unknownCountryCodesLogged = new Set();
 
@@ -75,21 +75,25 @@ function formatCompactTz(iso, tz) {
 }
 
 function parseOffsetToSeconds(offset) {
-    // expected examples: "+02:00", "-05:30"
+    // OpenF1 examples: "02:00:00", "-04:00:00".
+    // Also accept compact timezone offsets such as "+02:00" or "-05:30".
     if (!offset || typeof offset !== 'string')
         return null;
 
-    const m = offset.trim().match(/^([+-])(\d{2}):(\d{2})$/);
+    const m = offset.trim().match(/^([+-])?(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
     if (!m)
         return null;
 
     const sign = m[1] === '-' ? -1 : 1;
     const hh = Number.parseInt(m[2], 10);
     const mm = Number.parseInt(m[3], 10);
-    if (!Number.isFinite(hh) || !Number.isFinite(mm))
+    const ss = Number.parseInt(m[4] || '0', 10);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm) || !Number.isFinite(ss))
+        return null;
+    if (hh > 23 || mm > 59 || ss > 59)
         return null;
 
-    return sign * ((hh * 60 * 60) + (mm * 60));
+    return sign * ((hh * 60 * 60) + (mm * 60) + ss);
 }
 
 function formatCompactOffset(iso, offset) {
@@ -782,7 +786,7 @@ class OpenF1Indicator extends PanelMenu.Button {
             {text: `Last updated: ${formatUpdatedTs(this._cache.meta?.lastRefreshTs || 0)} (${this._cache.meta?.lastRefreshSource || 'CACHE'})`, dim: true},
             {text: liveSession
                 ? `LIVE now: ${abbreviateSessionName(liveSession.session_name)} (${formatCompactOffset(liveSession.date_start, meetingOffset)} → ${formatCompactOffset(liveSession.date_end || liveSession.date_start, meetingOffset)})`
-                : 'Sessions (System/UTC/Local):', dim: true},
+                : 'Sessions (System/UTC/Race):', dim: true},
         ];
 
         const sessionLimit = 8;
