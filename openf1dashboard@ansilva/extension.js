@@ -23,7 +23,7 @@ const OPENF1_ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions']);
 const JOLPICA_ALLOWED_PATHS = new Set(['current/driverStandings.json', 'current/constructorStandings.json']);
 const UI_SCHEMA_VERSION = 8;
 const BUILD_VERSION = '9';
-const BUILD_COMMIT = 'jolpica-standings';
+const BUILD_COMMIT = '74697da';
 
 const _unknownCountryCodesLogged = new Set();
 
