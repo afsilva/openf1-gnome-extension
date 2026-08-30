@@ -110,7 +110,7 @@ The generated `.shell-extension.zip` file is intentionally ignored by git.
 
 OpenF1 does not provide a single direct championship endpoint. This extension computes standings from OpenF1 `session_result` race/sprint results and enriches names/teams from `drivers` data.
 
-To reduce pressure on the public API, standings refreshes fetch only a small number of missing completed race/sprint sessions at a time and reuse cached results. If the cache is still warming, the standings section may show partial standings with an update progress note until later refreshes complete.
+To reduce pressure on the public API, standings refreshes fetch only a small number of missing completed race/sprint sessions at a time and reuse cached results. If the cache is still warming, the standings section shows an update progress note instead of partial totals. Once all completed scoring events are cached, standings are deterministic and repeated refreshes do not add duplicate points.
 
 ---
 

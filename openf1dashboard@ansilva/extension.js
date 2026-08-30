@@ -21,9 +21,9 @@ const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const MAX_STANDINGS_API_SESSIONS_PER_REFRESH = 4;
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
-const UI_SCHEMA_VERSION = 6;
-const BUILD_VERSION = '7';
-const BUILD_COMMIT = '1143e42';
+const UI_SCHEMA_VERSION = 7;
+const BUILD_VERSION = '8';
+const BUILD_COMMIT = 'standings-complete-cache-fix';
 
 const _unknownCountryCodesLogged = new Set();
 
@@ -652,9 +652,9 @@ class OpenF1Indicator extends PanelMenu.Button {
     }
 
     _sessionIsRaceLike(session) {
-        const n = (session?.session_name || '').toLowerCase();
-        const t = (session?.session_type || '').toLowerCase();
-        return n === 'race' || n.includes('sprint') || t === 'race' || t.includes('sprint');
+        const n = (session?.session_name || '').toLowerCase().trim();
+        const t = (session?.session_type || '').toLowerCase().trim();
+        return n === 'race' || n === 'sprint' || t === 'race' || t === 'sprint';
     }
 
     _isSessionLive(session, now) {
@@ -823,11 +823,9 @@ class OpenF1Indicator extends PanelMenu.Button {
 
     async _buildStandings(sessions) {
         let apiUsed = false;
-        const raceLikeSessions = sessions.filter(s => {
-            const n = (s.session_name || '').toLowerCase();
-            const t = (s.session_type || '').toLowerCase();
-            return n === 'race' || n.includes('sprint') || t === 'race' || t.includes('sprint');
-        }).sort((a, b) => parseIso(a.date_start).to_unix() - parseIso(b.date_start).to_unix());
+        const raceLikeSessions = sessions
+            .filter(s => this._sessionIsRaceLike(s))
+            .sort((a, b) => parseIso(a.date_start).to_unix() - parseIso(b.date_start).to_unix());
 
         const now = parseIso(isoNow());
         const completed = raceLikeSessions.filter(s => !s.is_cancelled && now.compare(parseIso(s.date_end || s.date_start)) >= 0);
@@ -906,6 +904,19 @@ class OpenF1Indicator extends PanelMenu.Button {
             cachedSessionPoints[sk] = perSession;
         }
 
+        const cachedEventCount = completed.filter(s => cachedSessionPoints[String(s.session_key)]).length;
+        const totalEventCount = completed.length;
+        if (cachedEventCount < totalEventCount) {
+            return {
+                drivers: [],
+                teams: [],
+                source: apiUsed ? 'API' : 'CACHE',
+                cachedEvents: cachedEventCount,
+                totalEvents: totalEventCount,
+                isWarming: true,
+            };
+        }
+
         for (const [dkey, info] of Object.entries(latestDirectory)) {
             if (!cachedDriverInfo[dkey]) {
                 cachedDriverInfo[dkey] = info;
@@ -953,12 +964,19 @@ class OpenF1Indicator extends PanelMenu.Button {
             drivers,
             teams,
             source: apiUsed ? 'API' : 'CACHE',
-            cachedEvents: Object.keys(cachedSessionPoints).length,
-            totalEvents: completed.length,
+            cachedEvents: cachedEventCount,
+            totalEvents: totalEventCount,
+            isWarming: false,
         };
     }
 
-    _updateStandings({drivers, teams, cachedEvents = 0, totalEvents = 0}) {
+    _updateStandings({drivers, teams, cachedEvents = 0, totalEvents = 0, isWarming = false}) {
+        if (isWarming) {
+            this._setSectionMessage(this._driversContent, `Updating standings cache (${cachedEvents}/${totalEvents} events). Try refresh again shortly.`);
+            this._hasStandingsData = true;
+            return;
+        }
+
         if (!drivers.length) {
             this._setSectionMessage(this._driversContent, 'No completed race results yet');
             this._hasStandingsData = true;
@@ -969,8 +987,6 @@ class OpenF1Indicator extends PanelMenu.Button {
         const topTeams = teams.slice(0, 10);
 
         const rows = [];
-        if (totalEvents > 0 && cachedEvents < totalEvents)
-            rows.push({text: `Updating standings cache (${cachedEvents}/${totalEvents} events)`, dim: true});
         rows.push({text: 'Drivers', dim: true});
         for (const d of topDrivers)
             rows.push(`${d.rank}. ${d.name} — ${d.points}p`);
