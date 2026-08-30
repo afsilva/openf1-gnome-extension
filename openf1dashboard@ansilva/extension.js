@@ -22,7 +22,7 @@ const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
 const UI_SCHEMA_VERSION = 4;
 const BUILD_VERSION = '4';
-const BUILD_COMMIT = '6a3fade';
+const BUILD_COMMIT = 'a02279b';
 
 const _unknownCountryCodesLogged = new Set();
 
