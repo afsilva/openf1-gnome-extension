@@ -17,8 +17,10 @@ A GNOME Shell extension that displays:
 
 Data sources:
 
-- Calendar/session schedule: [OpenF1 API](https://api.openf1.org)
-- Championship standings: [Jolpica Ergast-compatible API](https://api.jolpi.ca/ergast/f1)
+- Calendar/session schedule: [OpenF1 API](https://api.openf1.org) ([GitHub](https://github.com/br-g/openf1))
+- Championship standings: [Jolpica Ergast-compatible API](https://api.jolpi.ca/ergast/f1) ([GitHub](https://github.com/jolpica/jolpica-f1))
+
+The popup includes a compact `Data: OpenF1 / Jolpica` credit row. Each API name is clickable and opens the corresponding project repository via the system browser.
 
 The previous emoji/flag-based UI is preserved in the [`emoji-ui-preserved`](https://github.com/afsilva/openf1-gnome-extension/tree/emoji-ui-preserved) branch.
 
@@ -139,6 +141,7 @@ This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1
 ### A03 Injection
 - OpenF1 path/query is allowlisted (`meetings`, `sessions`) and query strings are validated against URL-safe characters.
 - Jolpica standings paths are fixed and allowlisted (`current/driverStandings.json`, `current/constructorStandings.json`).
+- API credit links use fixed repository URLs and launch only after explicit user clicks.
 - UI output is sanitized to strip control characters and normalize whitespace.
 
 ### A04 Insecure Design
@@ -178,6 +181,7 @@ This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1
 - On-disk cache size cap (2MB)
 - Endpoint cache entry cap
 - Fixed/allowlisted standings endpoints
+- Fixed API credit repository links opened only by user action
 - Asynchronous cache reads in the GNOME Shell process
 - HTTP request abort on extension disable/destroy
 - Sanitized UI text rendering

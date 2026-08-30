@@ -16,6 +16,21 @@
   white-space: normal;
 }
 
+.openf1-link-button {
+  padding: 0px;
+  border: 0px;
+  background-color: transparent;
+  box-shadow: none;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 8.7pt;
+  text-decoration: underline;
+}
+
+.openf1-link-button:hover,
+.openf1-link-button:focus {
+  color: rgba(255, 255, 255, 1.0);
+}
+
 /* strict fixed-width standings table */
 .openf1-row-table .popup-menu-item-label {
   font-family: Monospace;

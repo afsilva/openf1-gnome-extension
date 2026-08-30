@@ -12,6 +12,8 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const OPENF1_API_BASE = 'https://api.openf1.org/v1';
 const JOLPICA_API_BASE = 'https://api.jolpi.ca/ergast/f1';
+const OPENF1_PROJECT_URL = 'https://github.com/br-g/openf1';
+const JOLPICA_PROJECT_URL = 'https://github.com/jolpica/jolpica-f1';
 
 const REFRESH_WEEK_SECONDS = 24 * 60 * 60;      // once/day
 const REFRESH_WEEKEND_SECONDS = 60 * 60;         // once/hour
@@ -22,8 +24,8 @@ const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const OPENF1_ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions']);
 const JOLPICA_ALLOWED_PATHS = new Set(['current/driverStandings.json', 'current/constructorStandings.json']);
 const UI_SCHEMA_VERSION = 8;
-const BUILD_VERSION = '9';
-const BUILD_COMMIT = '74697da';
+const BUILD_VERSION = '10';
+const BUILD_COMMIT = 'api-credits';
 
 const _unknownCountryCodesLogged = new Set();
 
@@ -217,6 +219,7 @@ class OpenF1Indicator extends PanelMenu.Button {
         });
         this._refreshSourceId = 0;
         this._refreshNowSignalId = 0;
+        this._creditSignalIds = [];
         this._isRefreshing = false;
         this._cacheLoadCancellable = new Gio.Cancellable();
         this._hasCalendarData = false;
@@ -249,6 +252,9 @@ class OpenF1Indicator extends PanelMenu.Button {
         this._buildInfoItem.add_style_class_name('openf1-row-dim');
         this.menu.addMenuItem(this._buildInfoItem);
 
+        this._creditsItem = this._createCreditsItem();
+        this.menu.addMenuItem(this._creditsItem);
+
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._driversHeader = new PopupMenu.PopupMenuItem('Championship (Top 10)', {reactive: false, can_focus: false});
@@ -278,6 +284,12 @@ class OpenF1Indicator extends PanelMenu.Button {
             this._refreshNowItem.disconnect(this._refreshNowSignalId);
             this._refreshNowSignalId = 0;
         }
+
+        for (const {button, signalId} of this._creditSignalIds) {
+            if (button && signalId)
+                button.disconnect(signalId);
+        }
+        this._creditSignalIds = [];
 
         if (this._cacheLoadCancellable) {
             this._cacheLoadCancellable.cancel();
@@ -511,6 +523,45 @@ class OpenF1Indicator extends PanelMenu.Button {
             } else {
                 section.addMenuItem(this._createCompactRow(row.text, !!row.dim, row.className || null, !!row.preserveNewlines));
             }
+        }
+    }
+
+    _createCreditsItem() {
+        const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        item.add_style_class_name('openf1-row-compact');
+        item.add_style_class_name('openf1-row-dim');
+        item.add_child(new St.Label({text: 'Data: '}));
+
+        const openF1Button = this._createCreditButton('OpenF1', OPENF1_PROJECT_URL);
+        const separator = new St.Label({text: ' / '});
+        const jolpicaButton = this._createCreditButton('Jolpica', JOLPICA_PROJECT_URL);
+
+        item.add_child(openF1Button);
+        item.add_child(separator);
+        item.add_child(jolpicaButton);
+        return item;
+    }
+
+    _createCreditButton(label, uri) {
+        const button = new St.Button({
+            label,
+            reactive: true,
+            can_focus: true,
+            track_hover: true,
+            style_class: 'openf1-link-button',
+        });
+        const signalId = button.connect('clicked', () => {
+            this._openUri(uri);
+        });
+        this._creditSignalIds.push({button, signalId});
+        return button;
+    }
+
+    _openUri(uri) {
+        try {
+            Gio.AppInfo.launch_default_for_uri(uri, global.create_app_launch_context(0, -1));
+        } catch (_e) {
+            // Ignore launch failures; links are convenience credits only.
         }
     }
 
