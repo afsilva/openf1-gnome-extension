@@ -23,7 +23,7 @@ const MAX_STANDINGS_API_SESSIONS_PER_REFRESH = 4;
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
 const UI_SCHEMA_VERSION = 7;
 const BUILD_VERSION = '8';
-const BUILD_COMMIT = 'standings-complete-cache-fix';
+const BUILD_COMMIT = '68168a3';
 
 const _unknownCountryCodesLogged = new Set();
 
