@@ -21,8 +21,8 @@ const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
 const UI_SCHEMA_VERSION = 4;
-const BUILD_VERSION = '4';
-const BUILD_COMMIT = 'a02279b';
+const BUILD_VERSION = '5';
+const BUILD_COMMIT = '72da56c';
 
 const _unknownCountryCodesLogged = new Set();
 
@@ -209,7 +209,7 @@ class OpenF1Indicator extends PanelMenu.Button {
         this._refreshSourceId = 0;
         this._refreshNowSignalId = 0;
         this._isRefreshing = false;
-        this._isDestroyed = false;
+        this._cacheLoadCancellable = new Gio.Cancellable();
         this._hasCalendarData = false;
         this._hasStandingsData = false;
 
@@ -260,8 +260,6 @@ class OpenF1Indicator extends PanelMenu.Button {
     }
 
     destroy() {
-        this._isDestroyed = true;
-
         if (this._refreshSourceId) {
             GLib.Source.remove(this._refreshSourceId);
             this._refreshSourceId = 0;
@@ -270,6 +268,11 @@ class OpenF1Indicator extends PanelMenu.Button {
         if (this._refreshNowSignalId && this._refreshNowItem) {
             this._refreshNowItem.disconnect(this._refreshNowSignalId);
             this._refreshNowSignalId = 0;
+        }
+
+        if (this._cacheLoadCancellable) {
+            this._cacheLoadCancellable.cancel();
+            this._cacheLoadCancellable = null;
         }
 
         if (this._http) {
@@ -290,8 +293,9 @@ class OpenF1Indicator extends PanelMenu.Button {
     }
 
     async _initAsync() {
-        this._cache = await this._loadDiskCacheAsync();
-        if (this._isDestroyed)
+        const cancellable = this._cacheLoadCancellable;
+        this._cache = await this._loadDiskCacheAsync(cancellable);
+        if (cancellable?.is_cancelled())
             return;
 
         // Paint from cache immediately if available
@@ -327,11 +331,11 @@ class OpenF1Indicator extends PanelMenu.Button {
         return parsed;
     }
 
-    async _loadDiskCacheAsync() {
+    async _loadDiskCacheAsync(cancellable) {
         try {
             const file = Gio.File.new_for_path(this._cachePath);
             const bytes = await new Promise((resolve, reject) => {
-                file.load_contents_async(null, (_file, result) => {
+                file.load_contents_async(cancellable, (_file, result) => {
                     try {
                         const [, contents] = file.load_contents_finish(result);
                         resolve(contents);
