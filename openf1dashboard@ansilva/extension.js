@@ -20,18 +20,9 @@ const MAX_CACHE_BYTES = 2 * 1024 * 1024;         // 2MB on-disk cache cap
 const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
-const UI_SCHEMA_VERSION = 2;
+const UI_SCHEMA_VERSION = 3;
 const BUILD_VERSION = '2';
 const BUILD_COMMIT = 'cad7ca0';
-
-const ALPHA3_TO_ALPHA2 = {
-    AUS: 'AU', CHN: 'CN', JPN: 'JP', BHR: 'BH', SAU: 'SA', KSA: 'SA',
-    USA: 'US', ITA: 'IT', GBR: 'GB', BEL: 'BE', HUN: 'HU',
-    NLD: 'NL', AZE: 'AZ', SGP: 'SG', MEX: 'MX', BRA: 'BR',
-    QAT: 'QA', ARE: 'AE', UAE: 'AE', CAN: 'CA', ESP: 'ES', MCO: 'MC', MON: 'MC',
-    AUT: 'AT', FRA: 'FR', DEU: 'DE', CHE: 'CH', SWE: 'SE',
-    FIN: 'FI', DNK: 'DK', NOR: 'NO', PRT: 'PT', POL: 'PL',
-};
 
 const _unknownCountryCodesLogged = new Set();
 
@@ -130,35 +121,19 @@ function formatUpdatedTs(unixTs) {
     }
 }
 
-function countryFlag(code) {
+function countryCodeLabel(code) {
     if (!code)
-        return '🏁';
+        return 'N/A';
 
-    const upper = String(code).toUpperCase();
-    let alpha2 = upper;
+    const upper = String(code).toUpperCase().trim();
+    if (/^[A-Z]{2,3}$/.test(upper))
+        return upper;
 
-    if (upper.length === 3)
-        alpha2 = ALPHA3_TO_ALPHA2[upper] || '';
-
-    if (!alpha2 || alpha2.length !== 2) {
-        if (!_unknownCountryCodesLogged.has(upper)) {
-            _unknownCountryCodesLogged.add(upper);
-            console.warn(`[openf1dashboard] Unknown country code: ${upper}`);
-        }
-        return '🏁';
+    if (!_unknownCountryCodesLogged.has(upper)) {
+        _unknownCountryCodesLogged.add(upper);
+        console.warn(`[openf1dashboard] Unknown country code: ${upper}`);
     }
-
-    const a = alpha2.charCodeAt(0);
-    const b = alpha2.charCodeAt(1);
-    if (a < 65 || a > 90 || b < 65 || b > 90) {
-        if (!_unknownCountryCodesLogged.has(upper)) {
-            _unknownCountryCodesLogged.add(upper);
-            console.warn(`[openf1dashboard] Invalid alpha2 country code derived from ${upper}: ${alpha2}`);
-        }
-        return '🏁';
-    }
-
-    return String.fromCodePoint(127397 + a, 127397 + b);
+    return 'N/A';
 }
 
 function abbreviateSessionName(sessionName) {
@@ -234,11 +209,12 @@ class OpenF1Indicator extends PanelMenu.Button {
         this._refreshSourceId = 0;
         this._refreshNowSignalId = 0;
         this._isRefreshing = false;
+        this._isDestroyed = false;
         this._hasCalendarData = false;
         this._hasStandingsData = false;
 
         this._cachePath = OpenF1Indicator.cacheFilePath();
-        this._cache = this._loadDiskCache();
+        this._cache = this._createDefaultCache();
 
         this._label = new St.Label({
             text: 'F1',
@@ -274,11 +250,7 @@ class OpenF1Indicator extends PanelMenu.Button {
         this._setSectionMessage(this._calendarContent, 'Loading calendar…');
         this._setSectionMessage(this._driversContent, 'Loading standings…');
 
-        // Paint from cache immediately if available
-        this._applyCachedUi();
-
-        // Initial network refresh
-        this._refresh(true);
+        this._initAsync();
 
         // Lightweight scheduler tick: refresh only when policy says due
         this._refreshSourceId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, SCHEDULER_TICK_SECONDS, () => {
@@ -288,6 +260,8 @@ class OpenF1Indicator extends PanelMenu.Button {
     }
 
     destroy() {
+        this._isDestroyed = true;
+
         if (this._refreshSourceId) {
             GLib.Source.remove(this._refreshSourceId);
             this._refreshSourceId = 0;
@@ -298,50 +272,78 @@ class OpenF1Indicator extends PanelMenu.Button {
             this._refreshNowSignalId = 0;
         }
 
+        if (this._http) {
+            this._http.abort();
+            this._http = null;
+        }
+
         super.destroy();
     }
 
-    _loadDiskCache() {
+    _createDefaultCache() {
+        return {
+            endpoints: {},
+            ui: {},
+            meta: {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION},
+            standings: {sessionPoints: {}, driverInfo: {}},
+        };
+    }
+
+    async _initAsync() {
+        this._cache = await this._loadDiskCacheAsync();
+        if (this._isDestroyed)
+            return;
+
+        // Paint from cache immediately if available
+        this._applyCachedUi();
+
+        // Initial network refresh
+        this._refresh(true);
+    }
+
+    _normalizeDiskCache(parsed) {
+        if (!parsed || typeof parsed !== 'object')
+            return this._createDefaultCache();
+
+        if (!parsed.endpoints)
+            parsed.endpoints = {};
+        if (!parsed.ui)
+            parsed.ui = {};
+        if (!parsed.meta)
+            parsed.meta = {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION};
+        if (!parsed.meta.lastRefreshSource)
+            parsed.meta.lastRefreshSource = 'CACHE';
+
+        if ((parsed.meta.uiSchemaVersion || 0) < UI_SCHEMA_VERSION) {
+            parsed.ui = {};
+            parsed.meta.uiSchemaVersion = UI_SCHEMA_VERSION;
+        }
+        if (!parsed.standings)
+            parsed.standings = {sessionPoints: {}, driverInfo: {}};
+        if (!parsed.standings.sessionPoints)
+            parsed.standings.sessionPoints = {};
+        if (!parsed.standings.driverInfo)
+            parsed.standings.driverInfo = {};
+        return parsed;
+    }
+
+    async _loadDiskCacheAsync() {
         try {
             const file = Gio.File.new_for_path(this._cachePath);
-            if (!file.query_exists(null))
-                return {
-                    endpoints: {},
-                    ui: {},
-                    meta: {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION},
-                    standings: {sessionPoints: {}, driverInfo: {}},
-                };
-
-            const [, bytes] = file.load_contents(null);
+            const bytes = await new Promise((resolve, reject) => {
+                file.load_contents_async(null, (_file, result) => {
+                    try {
+                        const [, contents] = file.load_contents_finish(result);
+                        resolve(contents);
+                    } catch (e) {
+                        reject(e);
+                    }
+                });
+            });
             const text = new TextDecoder().decode(bytes);
-            const parsed = JSON.parse(text);
-            if (!parsed.endpoints)
-                parsed.endpoints = {};
-            if (!parsed.ui)
-                parsed.ui = {};
-            if (!parsed.meta)
-                parsed.meta = {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION};
-            if (!parsed.meta.lastRefreshSource)
-                parsed.meta.lastRefreshSource = 'CACHE';
-
-            if ((parsed.meta.uiSchemaVersion || 0) < UI_SCHEMA_VERSION) {
-                parsed.ui = {};
-                parsed.meta.uiSchemaVersion = UI_SCHEMA_VERSION;
-            }
-            if (!parsed.standings)
-                parsed.standings = {sessionPoints: {}, driverInfo: {}};
-            if (!parsed.standings.sessionPoints)
-                parsed.standings.sessionPoints = {};
-            if (!parsed.standings.driverInfo)
-                parsed.standings.driverInfo = {};
-            return parsed;
+            return this._normalizeDiskCache(JSON.parse(text));
         } catch (_e) {
-            return {
-                endpoints: {},
-                ui: {},
-                meta: {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION},
-                standings: {sessionPoints: {}, driverInfo: {}},
-            };
+            return this._createDefaultCache();
         }
     }
 
@@ -585,7 +587,7 @@ class OpenF1Indicator extends PanelMenu.Button {
                 if (!this._hasCalendarData)
                     this._setSectionMessage(this._calendarContent, 'OpenF1 rate limited (429). Using cache.');
             } else if (msg.includes('401')) {
-                this._label.text = 'F1 🔒';
+                this._label.text = 'F1 LOCK';
                 if (!this._hasCalendarData)
                     this._setSectionMessage(this._calendarContent, 'OpenF1 restricted during live session (401). Showing cache.');
             } else {
@@ -759,18 +761,18 @@ class OpenF1Indicator extends PanelMenu.Button {
 
         if (!selectedMeeting) {
             this._setSectionMessage(this._calendarContent, 'No upcoming weekend this season');
-            this._label.text = 'F1 ✓';
+            this._label.text = 'F1 DONE';
             this._hasCalendarData = true;
             return;
         }
 
-        const flag = countryFlag(selectedMeeting.country_code);
+        const countryCode = countryCodeLabel(selectedMeeting.country_code);
         const meetingOffset = selectedMeeting.gmt_offset || null;
 
         const liveSession = selectedMeetingSessions.find(s => this._isSessionLive(s, now)) || null;
 
         const rows = [
-            {text: `${flag} ${selectedMeeting.meeting_name} (${selectedMeeting.country_code || 'N/A'})`},
+            {text: `${selectedMeeting.meeting_name} (${countryCode})`},
             {text: `${selectedMeeting.location}`, dim: true},
             {text: `Weekend: ${formatCompactOffset(selectedMeeting.date_start, meetingOffset)} → ${formatCompactOffset(selectedMeeting.date_end, meetingOffset)}`, dim: true},
             {text: `Last updated: ${formatUpdatedTs(this._cache.meta?.lastRefreshTs || 0)} (${this._cache.meta?.lastRefreshSource || 'CACHE'})`, dim: true},
@@ -784,7 +786,7 @@ class OpenF1Indicator extends PanelMenu.Button {
         for (const s of shownSessions) {
             const isLive = liveSession && s.session_key === liveSession.session_key;
             const isNext = !isLive && nextSession && s.session_key === nextSession.session_key;
-            const marker = isLive ? '🔴' : (isNext ? '➡' : '•');
+            const marker = isLive ? 'LIVE' : (isNext ? 'NEXT' : '-');
             const short = abbreviateSessionName(s.session_name);
             rows.push({
                 text: `${marker} ${short}: ${formatCompactTz(s.date_start, 'local')} / ${formatCompactTz(s.date_start, 'utc')} / ${formatCompactOffset(s.date_start, meetingOffset)}`,
@@ -798,11 +800,11 @@ class OpenF1Indicator extends PanelMenu.Button {
             rows.push({text: 'No session schedule found for this meeting', dim: true});
 
         if (liveSession)
-            this._label.text = `${flag} LIVE ${abbreviateSessionName(liveSession.session_name)}`;
+            this._label.text = `F1 LIVE ${abbreviateSessionName(liveSession.session_name)}`;
         else if (nextSession)
-            this._label.text = `${flag} ${abbreviateSessionName(nextSession.session_name)}`;
+            this._label.text = `F1 ${abbreviateSessionName(nextSession.session_name)}`;
         else
-            this._label.text = `${flag} done`;
+            this._label.text = 'F1 done';
 
         this._setRows(this._calendarContent, rows);
         this._cache.ui.calendarRows = rows;
@@ -965,10 +967,6 @@ class OpenF1Indicator extends PanelMenu.Button {
 
 export default class OpenF1DashboardExtension extends Extension {
     enable() {
-        this._style = Gio.File.new_for_path(GLib.build_filenamev([this.path, 'stylesheet.css']));
-        if (this._style)
-            St.ThemeContext.get_for_stage(global.stage).get_theme().load_stylesheet(this._style);
-
         this._indicator = new OpenF1Indicator(BUILD_VERSION);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
     }
@@ -978,10 +976,6 @@ export default class OpenF1DashboardExtension extends Extension {
             this._indicator.destroy();
             this._indicator = null;
         }
-
-        if (this._style)
-            St.ThemeContext.get_for_stage(global.stage).get_theme().unload_stylesheet(this._style);
-        this._style = null;
 
         _unknownCountryCodesLogged.clear();
     }
