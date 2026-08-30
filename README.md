@@ -15,7 +15,10 @@ A GNOME Shell extension that displays:
    - Drivers standings (Top 10, full names)
    - Constructors standings (Top 10 teams)
 
-Data source: [OpenF1 API](https://api.openf1.org)
+Data sources:
+
+- Calendar/session schedule: [OpenF1 API](https://api.openf1.org)
+- Championship standings: [Jolpica Ergast-compatible API](https://api.jolpi.ca/ergast/f1)
 
 The previous emoji/flag-based UI is preserved in the [`emoji-ui-preserved`](https://github.com/afsilva/openf1-gnome-extension/tree/emoji-ui-preserved) branch.
 
@@ -79,7 +82,7 @@ gnome-extensions enable "$UUID"
 
 ## Package for extensions.gnome.org
 
-The `main` branch is the GNOME-review-ready version. It avoids emoji UI elements, aborts pending HTTP requests on disable, and uses asynchronous cache reads in the GNOME Shell process.
+The `main` branch is the GNOME-review-ready version. It avoids emoji UI elements, aborts pending HTTP requests on disable, uses asynchronous cache reads in the GNOME Shell process, and fetches championship standings from two fixed Jolpica endpoints.
 
 Create the upload bundle from the repository root:
 
@@ -108,32 +111,39 @@ The generated `.shell-extension.zip` file is intentionally ignored by git.
 
 ## Notes on standings
 
-OpenF1 does not provide a single direct championship endpoint. This extension computes standings from OpenF1 `session_result` race/sprint results and enriches names/teams from `drivers` data.
+OpenF1 does not provide a single direct championship standings endpoint. To avoid reconstructing season totals from many per-session result calls, this extension reads current driver and constructor standings from the Jolpica Ergast-compatible API.
 
-To reduce pressure on the public API, standings refreshes fetch only a small number of missing completed race/sprint sessions at a time and reuse cached results. If the cache is still warming, the standings section shows an update progress note instead of partial totals. Once all completed scoring events are cached, standings are deterministic and repeated refreshes do not add duplicate points.
+Only two fixed Jolpica standings endpoints are used and cached:
+
+```text
+current/driverStandings.json
+current/constructorStandings.json
+```
+
+This keeps the displayed standings aligned with current published championship totals while reducing API pressure.
 
 ---
 
 ## Security review (OWASP Top 10 aligned)
 
-This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1. It does not process credentials, auth tokens, payments, or user-provided arbitrary input. Still, the code applies OWASP-aligned controls:
+This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1 for schedule data and Jolpica for championship standings. It does not process credentials, auth tokens, payments, or user-provided arbitrary input. Still, the code applies OWASP-aligned controls:
 
 ### A01 Broken Access Control
 - No privileged backend actions or user role model in scope.
 - Extension only reads public API data and writes a local cache file in user cache dir.
 
 ### A02 Cryptographic Failures
-- Uses HTTPS OpenF1 endpoint only (`https://api.openf1.org/v1`).
+- Uses HTTPS API endpoints only (`https://api.openf1.org/v1` and `https://api.jolpi.ca/ergast/f1`).
 - No secrets stored in code or cache.
 
 ### A03 Injection
-- API path/query is allowlisted (`meetings`, `sessions`, `session_result`, `drivers`).
-- Query string is validated against URL-safe characters.
+- OpenF1 path/query is allowlisted (`meetings`, `sessions`) and query strings are validated against URL-safe characters.
+- Jolpica standings paths are fixed and allowlisted (`current/driverStandings.json`, `current/constructorStandings.json`).
 - UI output is sanitized to strip control characters and normalize whitespace.
 
 ### A04 Insecure Design
 - Cache-first design reduces API pressure and failure exposure.
-- Standings refreshes are bounded to avoid fetching every historical race/sprint result in one cycle.
+- Standings use two current championship endpoints instead of many historical race/sprint result calls.
 - Explicit refresh policy (daily off-weekend, hourly race weekend).
 - Defensive handling for API 404/429 and canceled sessions.
 - Pending HTTP requests are aborted when the extension is disabled/destroyed.
@@ -151,7 +161,7 @@ This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1
 - Not applicable (no auth workflow).
 
 ### A08 Software and Data Integrity Failures
-- Parsed API payload shape is validated (expects arrays).
+- Parsed API payload shape is validated (OpenF1 arrays and Jolpica standings objects).
 - Large responses are bounded to prevent memory abuse.
 
 ### A09 Security Logging and Monitoring Failures
@@ -159,13 +169,15 @@ This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1
 - Runtime UI avoids leaking full backend payloads while still signaling error state.
 
 ### A10 Server-Side Request Forgery (SSRF)
-- Endpoint host is fixed constant (`api.openf1.org`).
-- Dynamic path/query is validated and endpoint-allowlisted.
+- Endpoint hosts are fixed constants (`api.openf1.org`, `api.jolpi.ca`).
+- OpenF1 dynamic path/query is validated and endpoint-allowlisted.
+- Jolpica paths are fixed and allowlisted.
 
 ## Additional hardening implemented
 - Response size cap (1MB)
 - On-disk cache size cap (2MB)
 - Endpoint cache entry cap
+- Fixed/allowlisted standings endpoints
 - Asynchronous cache reads in the GNOME Shell process
 - HTTP request abort on extension disable/destroy
 - Sanitized UI text rendering

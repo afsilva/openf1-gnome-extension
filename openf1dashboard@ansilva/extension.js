@@ -10,20 +10,20 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-const API_BASE = 'https://api.openf1.org/v1';
+const OPENF1_API_BASE = 'https://api.openf1.org/v1';
+const JOLPICA_API_BASE = 'https://api.jolpi.ca/ergast/f1';
 
 const REFRESH_WEEK_SECONDS = 24 * 60 * 60;      // once/day
 const REFRESH_WEEKEND_SECONDS = 60 * 60;         // once/hour
 const SCHEDULER_TICK_SECONDS = 15 * 60;          // lightweight local tick
-const RESULT_CACHE_SECONDS = 30 * 24 * 60 * 60;  // completed results are stable
 const MAX_CACHE_BYTES = 2 * 1024 * 1024;         // 2MB on-disk cache cap
 const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
-const MAX_STANDINGS_API_SESSIONS_PER_REFRESH = 4;
-const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
-const UI_SCHEMA_VERSION = 7;
-const BUILD_VERSION = '8';
-const BUILD_COMMIT = '68168a3';
+const OPENF1_ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions']);
+const JOLPICA_ALLOWED_PATHS = new Set(['current/driverStandings.json', 'current/constructorStandings.json']);
+const UI_SCHEMA_VERSION = 8;
+const BUILD_VERSION = '9';
+const BUILD_COMMIT = 'jolpica-standings';
 
 const _unknownCountryCodesLogged = new Set();
 
@@ -180,16 +180,20 @@ function sanitizeUiText(value, maxLen = 160, preserveNewlines = false) {
     return clean.length > maxLen ? `${clean.slice(0, maxLen - 1)}…` : clean;
 }
 
-function isValidPathAndQuery(pathAndQuery) {
+function isValidOpenF1PathAndQuery(pathAndQuery) {
     if (typeof pathAndQuery !== 'string' || !pathAndQuery.includes('?'))
         return false;
 
     const [endpoint, query] = pathAndQuery.split('?', 2);
-    if (!ALLOWED_ENDPOINTS.has(endpoint))
+    if (!OPENF1_ALLOWED_ENDPOINTS.has(endpoint))
         return false;
 
     // Query keys/values allow typical URL-safe characters used by OpenF1 filters
     return /^[a-zA-Z0-9_=&.,:%+-]*$/.test(query);
+}
+
+function isValidJolpicaPath(path) {
+    return typeof path === 'string' && JOLPICA_ALLOWED_PATHS.has(path);
 }
 
 class OpenF1Indicator extends PanelMenu.Button {
@@ -293,7 +297,7 @@ class OpenF1Indicator extends PanelMenu.Button {
             endpoints: {},
             ui: {},
             meta: {lastRefreshTs: 0, refreshInterval: REFRESH_WEEK_SECONDS, lastRefreshSource: 'CACHE', uiSchemaVersion: UI_SCHEMA_VERSION},
-            standings: {sessionPoints: {}, driverInfo: {}},
+
         };
     }
 
@@ -327,12 +331,6 @@ class OpenF1Indicator extends PanelMenu.Button {
             parsed.ui = {};
             parsed.meta.uiSchemaVersion = UI_SCHEMA_VERSION;
         }
-        if (!parsed.standings)
-            parsed.standings = {sessionPoints: {}, driverInfo: {}};
-        if (!parsed.standings.sessionPoints)
-            parsed.standings.sessionPoints = {};
-        if (!parsed.standings.driverInfo)
-            parsed.standings.driverInfo = {};
         return parsed;
     }
 
@@ -459,15 +457,29 @@ class OpenF1Indicator extends PanelMenu.Button {
         return (unixNow() - last) >= interval;
     }
 
-    async _fetchJsonCached(pathAndQuery, maxAgeSec, forceApi = false) {
+    async _fetchOpenF1JsonCached(pathAndQuery, maxAgeSec, forceApi = false) {
+        const key = `openf1:${pathAndQuery}`;
         if (!forceApi) {
-            const cached = this._endpointCacheGet(pathAndQuery, maxAgeSec);
+            const cached = this._endpointCacheGet(key, maxAgeSec);
             if (cached)
                 return {data: cached, source: 'CACHE'};
         }
 
-        const data = await this._fetchJson(pathAndQuery);
-        this._endpointCacheSet(pathAndQuery, data);
+        const data = await this._fetchOpenF1Json(pathAndQuery);
+        this._endpointCacheSet(key, data);
+        return {data, source: 'API'};
+    }
+
+    async _fetchJolpicaJsonCached(path, maxAgeSec, forceApi = false) {
+        const key = `jolpica:${path}`;
+        if (!forceApi) {
+            const cached = this._endpointCacheGet(key, maxAgeSec);
+            if (cached)
+                return {data: cached, source: 'CACHE'};
+        }
+
+        const data = await this._fetchJolpicaJson(path);
+        this._endpointCacheSet(key, data);
         return {data, source: 'API'};
     }
 
@@ -517,36 +529,50 @@ class OpenF1Indicator extends PanelMenu.Button {
         }
     }
 
-    async _fetchJson(pathAndQuery) {
-        if (!isValidPathAndQuery(pathAndQuery))
-            throw new Error('Invalid API query');
+    async _fetchOpenF1Json(pathAndQuery) {
+        if (!isValidOpenF1PathAndQuery(pathAndQuery))
+            throw new Error('Invalid OpenF1 API query');
 
+        const parsed = await this._fetchJsonFromUrl(`${OPENF1_API_BASE}/${pathAndQuery}`, 'OpenF1');
+        if (!Array.isArray(parsed))
+            throw new Error('Invalid OpenF1 API payload');
+        return parsed;
+    }
+
+    async _fetchJolpicaJson(path) {
+        if (!isValidJolpicaPath(path))
+            throw new Error('Invalid Jolpica API path');
+
+        const parsed = await this._fetchJsonFromUrl(`${JOLPICA_API_BASE}/${path}`, 'Jolpica');
+        if (!parsed || typeof parsed !== 'object' || !parsed.MRData)
+            throw new Error('Invalid Jolpica API payload');
+        return parsed;
+    }
+
+    async _fetchJsonFromUrl(url, apiName) {
         return new Promise((resolve, reject) => {
-            const message = Soup.Message.new('GET', `${API_BASE}/${pathAndQuery}`);
-            this._http.send_and_read_async(message, GLib.PRIORITY_DEFAULT, null, (_session, result) => {
+            const message = Soup.Message.new('GET', url);
+            this._http.send_and_read_async(message, GLib.PRIORITY_DEFAULT, null, (session, result) => {
                 try {
-                    const bytes = this._http.send_and_read_finish(result);
+                    const bytes = session.send_and_read_finish(result);
                     const status = message.status_code ?? 0;
                     const dataBytes = bytes.get_data();
 
                     if (dataBytes.length > MAX_RESPONSE_BYTES)
-                        throw new Error('API response too large');
+                        throw new Error(`${apiName} API response too large`);
 
                     const text = new TextDecoder().decode(dataBytes);
 
                     if (status === 429)
-                        throw new Error('OpenF1 API rate limit reached (429)');
+                        throw new Error(`${apiName} API rate limit reached (429)`);
 
                     if (status === 401)
-                        throw new Error('OpenF1 API restricted during live session (401)');
+                        throw new Error(`${apiName} API restricted (401)`);
 
                     if (status < 200 || status >= 300)
-                        throw new Error(`HTTP ${status}`);
+                        throw new Error(`${apiName} HTTP ${status}`);
 
-                    const parsed = JSON.parse(text);
-                    if (!Array.isArray(parsed))
-                        throw new Error('Invalid API payload');
-                    resolve(parsed);
+                    resolve(JSON.parse(text));
                 } catch (e) {
                     reject(e);
                 }
@@ -567,8 +593,8 @@ class OpenF1Indicator extends PanelMenu.Button {
 
         // Always re-evaluate refresh policy from cached schedule data
         const year = GLib.DateTime.new_now_utc().get_year();
-        const cachedMeetings = this._endpointCacheGet(`meetings?year=${year}`, 7 * 24 * 60 * 60);
-        const cachedSessions = this._endpointCacheGet(`sessions?year=${year}`, 7 * 24 * 60 * 60);
+        const cachedMeetings = this._endpointCacheGet(`openf1:meetings?year=${year}`, 7 * 24 * 60 * 60);
+        const cachedSessions = this._endpointCacheGet(`openf1:sessions?year=${year}`, 7 * 24 * 60 * 60);
         if (cachedMeetings && cachedSessions) {
             this._cache.meta.refreshInterval = this._getRefreshIntervalForData(cachedMeetings, cachedSessions);
             this._saveDiskCache();
@@ -581,8 +607,8 @@ class OpenF1Indicator extends PanelMenu.Button {
         try {
             const forceApi = !!force;
             const [meetingsResp, sessionsResp] = await Promise.all([
-                this._fetchJsonCached(`meetings?year=${year}`, 24 * 60 * 60, forceApi),
-                this._fetchJsonCached(`sessions?year=${year}`, 24 * 60 * 60, forceApi),
+                this._fetchOpenF1JsonCached(`meetings?year=${year}`, 24 * 60 * 60, forceApi),
+                this._fetchOpenF1JsonCached(`sessions?year=${year}`, 24 * 60 * 60, forceApi),
             ]);
             meetings = meetingsResp.data;
             sessions = sessionsResp.data;
@@ -608,13 +634,7 @@ class OpenF1Indicator extends PanelMenu.Button {
 
         // Standings path (independent from calendar failures)
         try {
-            if (!sessions) {
-                const sessResp = await this._fetchJsonCached(`sessions?year=${year}`, 24 * 60 * 60, true);
-                sessions = sessResp.data;
-                apiUsed = apiUsed || sessResp.source === 'API';
-            }
-
-            const standings = await this._buildStandings(sessions);
+            const standings = await this._buildStandings(force);
             apiUsed = apiUsed || standings.source === 'API';
             this._updateStandings(standings);
             this._saveDiskCache();
@@ -625,7 +645,7 @@ class OpenF1Indicator extends PanelMenu.Button {
                     this._setSectionMessage(this._driversContent, 'Rate limited (429). No cached standings yet.');
             } else if (msg.includes('401')) {
                 if (!this._hasStandingsData)
-                    this._setSectionMessage(this._driversContent, 'OpenF1 restricted during live session (401). Showing cache.');
+                    this._setSectionMessage(this._driversContent, 'Standings API restricted (401). Showing cache.');
             } else {
                 if (!this._hasStandingsData)
                     this._setSectionMessage(this._driversContent, 'Standings unavailable (network/API error).');
@@ -651,38 +671,12 @@ class OpenF1Indicator extends PanelMenu.Button {
         return `UTC${offset.slice(0, 6)}`;
     }
 
-    _sessionIsRaceLike(session) {
-        const n = (session?.session_name || '').toLowerCase().trim();
-        const t = (session?.session_type || '').toLowerCase().trim();
-        return n === 'race' || n === 'sprint' || t === 'race' || t === 'sprint';
-    }
-
     _isSessionLive(session, now) {
         const start = parseIso(session?.date_start);
         const end = parseIso(session?.date_end || session?.date_start);
         if (!start || !end || !now)
             return false;
         return now.compare(start) >= 0 && now.compare(end) <= 0;
-    }
-
-    async _loadDriverDirectoryForSession(sessionKey) {
-        try {
-            const res = await this._fetchJsonCached(`drivers?session_key=${sessionKey}`, RESULT_CACHE_SECONDS);
-            const map = {};
-            for (const d of res.data || []) {
-                const dn = d.driver_number;
-                if (dn === null || dn === undefined)
-                    continue;
-                const dkey = String(dn);
-                map[dkey] = {
-                    name: d.full_name || d.broadcast_name || d.last_name || `#${dn}`,
-                    team: d.team_name || d.team_colour || 'Unknown Team',
-                };
-            }
-            return map;
-        } catch (_e) {
-            return {};
-        }
     }
 
     _updateCalendar(meetings, sessions) {
@@ -821,162 +815,48 @@ class OpenF1Indicator extends PanelMenu.Button {
         this._hasCalendarData = true;
     }
 
-    async _buildStandings(sessions) {
-        let apiUsed = false;
-        const raceLikeSessions = sessions
-            .filter(s => this._sessionIsRaceLike(s))
-            .sort((a, b) => parseIso(a.date_start).to_unix() - parseIso(b.date_start).to_unix());
+    async _buildStandings(forceApi = false) {
+        const [driverResp, constructorResp] = await Promise.all([
+            this._fetchJolpicaJsonCached('current/driverStandings.json', REFRESH_WEEKEND_SECONDS, forceApi),
+            this._fetchJolpicaJsonCached('current/constructorStandings.json', REFRESH_WEEKEND_SECONDS, forceApi),
+        ]);
 
-        const now = parseIso(isoNow());
-        const completed = raceLikeSessions.filter(s => !s.is_cancelled && now.compare(parseIso(s.date_end || s.date_start)) >= 0);
+        const driverStandings = driverResp.data?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || [];
+        const constructorStandings = constructorResp.data?.MRData?.StandingsTable?.StandingsLists?.[0]?.ConstructorStandings || [];
 
-        if (completed.length === 0)
-            return {drivers: [], teams: [], source: 'CACHE'};
-
-        const latestCompleted = completed[completed.length - 1];
-        const latestDirectory = await this._loadDriverDirectoryForSession(latestCompleted.session_key);
-
-        if (!this._cache.standings)
-            this._cache.standings = {sessionPoints: {}, driverInfo: {}};
-        if (!this._cache.standings.sessionPoints)
-            this._cache.standings.sessionPoints = {};
-        if (!this._cache.standings.driverInfo)
-            this._cache.standings.driverInfo = {};
-
-        const cachedSessionPoints = this._cache.standings.sessionPoints;
-        const cachedDriverInfo = this._cache.standings.driverInfo;
-        const missingCompleted = completed.filter(s => !cachedSessionPoints[String(s.session_key)]);
-        const sessionsToFetch = missingCompleted.slice(-MAX_STANDINGS_API_SESSIONS_PER_REFRESH);
-
-        for (const s of sessionsToFetch) {
-            const sk = String(s.session_key);
-
-            const sessionEnd = parseIso(s.date_end || s.date_start);
-            const isCompletedPast = sessionEnd && (unixNow() - sessionEnd.to_unix()) > (2 * 60 * 60);
-            const cacheAge = isCompletedPast ? RESULT_CACHE_SECONDS : REFRESH_WEEKEND_SECONDS;
-
-            let res;
-            try {
-                res = await this._fetchJsonCached(`session_result?session_key=${s.session_key}`, cacheAge);
-                apiUsed = apiUsed || res.source === 'API';
-            } catch (e) {
-                const msg = String(e?.message || e);
-                if (msg.includes('404') && msg.toLowerCase().includes('no results found')) {
-                    // mark session as processed with empty result to avoid repeated failing fetches
-                    cachedSessionPoints[sk] = {};
-                    continue;
-                }
-                if (msg.includes('429') || msg.includes('401')) {
-                    this._saveDiskCache();
-                    break;
-                }
-                throw e;
-            }
-
-            const driverDirectory = await this._loadDriverDirectoryForSession(s.session_key);
-            const perSession = {};
-            for (const r of res.data) {
-                const dn = r.driver_number;
-                if (dn === null || dn === undefined)
-                    continue;
-
-                const pts = Number(r.points || 0);
-                if (!Number.isFinite(pts))
-                    continue;
-
-                const dkey = String(dn);
-                perSession[dkey] = (perSession[dkey] || 0) + pts;
-
-                const dirInfo = driverDirectory[dkey] || {};
-                const name = r.full_name || r.broadcast_name || dirInfo.name || `#${dn}`;
-                const team = r.team_name || dirInfo.team || 'Unknown Team';
-
-                if (!cachedDriverInfo[dkey]) {
-                    cachedDriverInfo[dkey] = {name, team};
-                } else {
-                    // Prefer richer values over placeholders
-                    if ((cachedDriverInfo[dkey].name || '').startsWith('#') && name)
-                        cachedDriverInfo[dkey].name = name;
-                    if (cachedDriverInfo[dkey].team === 'Unknown Team' && team)
-                        cachedDriverInfo[dkey].team = team;
-                }
-            }
-            cachedSessionPoints[sk] = perSession;
-        }
-
-        const cachedEventCount = completed.filter(s => cachedSessionPoints[String(s.session_key)]).length;
-        const totalEventCount = completed.length;
-        if (cachedEventCount < totalEventCount) {
+        const drivers = driverStandings.map((standing, idx) => {
+            const driver = standing.Driver || {};
+            const constructor = standing.Constructors?.[0] || {};
+            const givenName = driver.givenName || '';
+            const familyName = driver.familyName || '';
+            const name = `${givenName} ${familyName}`.trim() || driver.code || driver.driverId || 'Unknown Driver';
+            const points = Number(standing.points || 0);
             return {
-                drivers: [],
-                teams: [],
-                source: apiUsed ? 'API' : 'CACHE',
-                cachedEvents: cachedEventCount,
-                totalEvents: totalEventCount,
-                isWarming: true,
+                rank: Number.parseInt(standing.position, 10) || idx + 1,
+                name,
+                team: constructor.name || 'Unknown Team',
+                points: Number.isFinite(points) ? points : 0,
             };
-        }
+        });
 
-        for (const [dkey, info] of Object.entries(latestDirectory)) {
-            if (!cachedDriverInfo[dkey]) {
-                cachedDriverInfo[dkey] = info;
-                continue;
-            }
-            if ((cachedDriverInfo[dkey].name || '').startsWith('#') && info.name)
-                cachedDriverInfo[dkey].name = info.name;
-            if (cachedDriverInfo[dkey].team === 'Unknown Team' && info.team)
-                cachedDriverInfo[dkey].team = info.team;
-        }
-
-        const pointsByDriver = new Map();
-        for (const s of completed) {
-            const sk = String(s.session_key);
-            const perSession = cachedSessionPoints[sk] || {};
-            for (const [dkey, pts] of Object.entries(perSession)) {
-                pointsByDriver.set(dkey, (pointsByDriver.get(dkey) || 0) + Number(pts || 0));
-            }
-        }
-
-        if (pointsByDriver.size === 0)
-            return {drivers: [], teams: [], source: apiUsed ? 'API' : 'CACHE'};
-
-        const teamPoints = new Map();
-        const drivers = [...pointsByDriver.entries()]
-            .map(([driverNumber, points]) => {
-                const info = cachedDriverInfo[driverNumber] || {name: `#${driverNumber}`, team: 'Unknown Team'};
-                teamPoints.set(info.team, (teamPoints.get(info.team) || 0) + points);
-                return {
-                    driverNumber,
-                    points,
-                    name: info.name,
-                    team: info.team,
-                };
-            })
-            .sort((a, b) => b.points - a.points)
-            .map((d, idx) => ({...d, rank: idx + 1}));
-
-        const teams = [...teamPoints.entries()]
-            .map(([team, points]) => ({team, points}))
-            .sort((a, b) => b.points - a.points)
-            .map((t, idx) => ({...t, rank: idx + 1}));
+        const teams = constructorStandings.map((standing, idx) => {
+            const constructor = standing.Constructor || {};
+            const points = Number(standing.points || 0);
+            return {
+                rank: Number.parseInt(standing.position, 10) || idx + 1,
+                team: constructor.name || constructor.constructorId || 'Unknown Team',
+                points: Number.isFinite(points) ? points : 0,
+            };
+        });
 
         return {
             drivers,
             teams,
-            source: apiUsed ? 'API' : 'CACHE',
-            cachedEvents: cachedEventCount,
-            totalEvents: totalEventCount,
-            isWarming: false,
+            source: driverResp.source === 'API' || constructorResp.source === 'API' ? 'API' : 'CACHE',
         };
     }
 
-    _updateStandings({drivers, teams, cachedEvents = 0, totalEvents = 0, isWarming = false}) {
-        if (isWarming) {
-            this._setSectionMessage(this._driversContent, `Updating standings cache (${cachedEvents}/${totalEvents} events). Try refresh again shortly.`);
-            this._hasStandingsData = true;
-            return;
-        }
-
+    _updateStandings({drivers, teams}) {
         if (!drivers.length) {
             this._setSectionMessage(this._driversContent, 'No completed race results yet');
             this._hasStandingsData = true;
