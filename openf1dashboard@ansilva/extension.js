@@ -20,9 +20,9 @@ const MAX_CACHE_BYTES = 2 * 1024 * 1024;         // 2MB on-disk cache cap
 const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
-const UI_SCHEMA_VERSION = 3;
-const BUILD_VERSION = '3';
-const BUILD_COMMIT = 'gnome-review-v3';
+const UI_SCHEMA_VERSION = 4;
+const BUILD_VERSION = '4';
+const BUILD_COMMIT = '6a3fade';
 
 const _unknownCountryCodesLogged = new Set();
 
@@ -583,15 +583,15 @@ class OpenF1Indicator extends PanelMenu.Button {
         } catch (e) {
             const msg = String(e?.message || e);
             if (msg.includes('429')) {
-                this._label.text = 'F1 RL';
+                this._label.text = 'F1 | RL';
                 if (!this._hasCalendarData)
                     this._setSectionMessage(this._calendarContent, 'OpenF1 rate limited (429). Using cache.');
             } else if (msg.includes('401')) {
-                this._label.text = 'F1 LOCK';
+                this._label.text = 'F1 | LOCK';
                 if (!this._hasCalendarData)
                     this._setSectionMessage(this._calendarContent, 'OpenF1 restricted during live session (401). Showing cache.');
             } else {
-                this._label.text = 'F1 !';
+                this._label.text = 'F1 | !';
                 if (!this._hasCalendarData)
                     this._setSectionMessage(this._calendarContent, 'Calendar data unavailable (network/API error).');
             }
@@ -680,7 +680,7 @@ class OpenF1Indicator extends PanelMenu.Button {
         const now = parseIso(isoNow());
         if (!meetings?.length || !sessions?.length) {
             this._setSectionMessage(this._calendarContent, 'No schedule data');
-            this._label.text = 'F1 -';
+            this._label.text = 'F1 | -';
             return;
         }
 
@@ -761,7 +761,7 @@ class OpenF1Indicator extends PanelMenu.Button {
 
         if (!selectedMeeting) {
             this._setSectionMessage(this._calendarContent, 'No upcoming weekend this season');
-            this._label.text = 'F1 DONE';
+            this._label.text = 'F1 | DONE';
             this._hasCalendarData = true;
             return;
         }
@@ -772,8 +772,8 @@ class OpenF1Indicator extends PanelMenu.Button {
         const liveSession = selectedMeetingSessions.find(s => this._isSessionLive(s, now)) || null;
 
         const rows = [
-            {text: `${selectedMeeting.meeting_name} (${countryCode})`},
-            {text: `${selectedMeeting.location}`, dim: true},
+            {text: `Grand Prix: ${selectedMeeting.meeting_name} (${countryCode})`},
+            {text: `Location: ${selectedMeeting.location || 'N/A'}`, dim: true},
             {text: `Weekend: ${formatCompactOffset(selectedMeeting.date_start, meetingOffset)} → ${formatCompactOffset(selectedMeeting.date_end, meetingOffset)}`, dim: true},
             {text: `Last updated: ${formatUpdatedTs(this._cache.meta?.lastRefreshTs || 0)} (${this._cache.meta?.lastRefreshSource || 'CACHE'})`, dim: true},
             {text: liveSession
@@ -800,11 +800,11 @@ class OpenF1Indicator extends PanelMenu.Button {
             rows.push({text: 'No session schedule found for this meeting', dim: true});
 
         if (liveSession)
-            this._label.text = `F1 LIVE ${abbreviateSessionName(liveSession.session_name)}`;
+            this._label.text = `F1 | LIVE ${abbreviateSessionName(liveSession.session_name)}`;
         else if (nextSession)
-            this._label.text = `F1 ${abbreviateSessionName(nextSession.session_name)}`;
+            this._label.text = `F1 | ${abbreviateSessionName(nextSession.session_name)}`;
         else
-            this._label.text = 'F1 done';
+            this._label.text = 'F1 | done';
 
         this._setRows(this._calendarContent, rows);
         this._cache.ui.calendarRows = rows;

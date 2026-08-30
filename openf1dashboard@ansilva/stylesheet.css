@@ -10,7 +10,7 @@
 }
 
 .openf1-row-compact .popup-menu-item-label {
-  font-size: 9.7pt;
+  font-size: 8.7pt;
   line-height: 1.10;
   color: rgba(255, 255, 255, 0.95);
   white-space: normal;
@@ -19,7 +19,7 @@
 /* strict fixed-width standings table */
 .openf1-row-table .popup-menu-item-label {
   font-family: Monospace;
-  font-size: 9.1pt;
+  font-size: 8.1pt;
   line-height: 1.06;
   font-weight: 400;
   white-space: pre;

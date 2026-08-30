@@ -9,7 +9,7 @@ A GNOME Shell extension that displays:
      - race local time
      - UTC
      - your system local time
-   - Uses text status labels such as `LIVE`, `NEXT`, and `DONE` instead of emoji in the GNOME-review-ready `main` branch
+   - Uses text status labels such as `F1 | FP1`, `F1 | LIVE R`, `NEXT`, and `DONE` instead of emoji in the GNOME-review-ready `main` branch
 
 2. **Championship points**
    - Drivers standings (Top 10, full names)
