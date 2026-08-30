@@ -19,10 +19,11 @@ const RESULT_CACHE_SECONDS = 30 * 24 * 60 * 60;  // completed results are stable
 const MAX_CACHE_BYTES = 2 * 1024 * 1024;         // 2MB on-disk cache cap
 const MAX_ENDPOINT_CACHE_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 1024 * 1024;           // 1MB response body cap
+const MAX_STANDINGS_API_SESSIONS_PER_REFRESH = 4;
 const ALLOWED_ENDPOINTS = new Set(['meetings', 'sessions', 'session_result', 'drivers']);
-const UI_SCHEMA_VERSION = 5;
-const BUILD_VERSION = '6';
-const BUILD_COMMIT = 'a800994';
+const UI_SCHEMA_VERSION = 6;
+const BUILD_VERSION = '7';
+const BUILD_COMMIT = 'standings-rate-limit-fix';
 
 const _unknownCountryCodesLogged = new Set();
 
@@ -846,11 +847,11 @@ class OpenF1Indicator extends PanelMenu.Button {
 
         const cachedSessionPoints = this._cache.standings.sessionPoints;
         const cachedDriverInfo = this._cache.standings.driverInfo;
+        const missingCompleted = completed.filter(s => !cachedSessionPoints[String(s.session_key)]);
+        const sessionsToFetch = missingCompleted.slice(-MAX_STANDINGS_API_SESSIONS_PER_REFRESH);
 
-        for (const s of completed) {
+        for (const s of sessionsToFetch) {
             const sk = String(s.session_key);
-            if (cachedSessionPoints[sk])
-                continue;
 
             const sessionEnd = parseIso(s.date_end || s.date_start);
             const isCompletedPast = sessionEnd && (unixNow() - sessionEnd.to_unix()) > (2 * 60 * 60);
@@ -866,6 +867,10 @@ class OpenF1Indicator extends PanelMenu.Button {
                     // mark session as processed with empty result to avoid repeated failing fetches
                     cachedSessionPoints[sk] = {};
                     continue;
+                }
+                if (msg.includes('429') || msg.includes('401')) {
+                    this._saveDiskCache();
+                    break;
                 }
                 throw e;
             }
@@ -944,10 +949,16 @@ class OpenF1Indicator extends PanelMenu.Button {
             .sort((a, b) => b.points - a.points)
             .map((t, idx) => ({...t, rank: idx + 1}));
 
-        return {drivers, teams, source: apiUsed ? 'API' : 'CACHE'};
+        return {
+            drivers,
+            teams,
+            source: apiUsed ? 'API' : 'CACHE',
+            cachedEvents: Object.keys(cachedSessionPoints).length,
+            totalEvents: completed.length,
+        };
     }
 
-    _updateStandings({drivers, teams}) {
+    _updateStandings({drivers, teams, cachedEvents = 0, totalEvents = 0}) {
         if (!drivers.length) {
             this._setSectionMessage(this._driversContent, 'No completed race results yet');
             this._hasStandingsData = true;
@@ -958,6 +969,8 @@ class OpenF1Indicator extends PanelMenu.Button {
         const topTeams = teams.slice(0, 10);
 
         const rows = [];
+        if (totalEvents > 0 && cachedEvents < totalEvents)
+            rows.push({text: `Updating standings cache (${cachedEvents}/${totalEvents} events)`, dim: true});
         rows.push({text: 'Drivers', dim: true});
         for (const d of topDrivers)
             rows.push(`${d.rank}. ${d.name} — ${d.points}p`);

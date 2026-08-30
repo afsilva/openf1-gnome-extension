@@ -110,6 +110,8 @@ The generated `.shell-extension.zip` file is intentionally ignored by git.
 
 OpenF1 does not provide a single direct championship endpoint. This extension computes standings from OpenF1 `session_result` race/sprint results and enriches names/teams from `drivers` data.
 
+To reduce pressure on the public API, standings refreshes fetch only a small number of missing completed race/sprint sessions at a time and reuse cached results. If the cache is still warming, the standings section may show partial standings with an update progress note until later refreshes complete.
+
 ---
 
 ## Security review (OWASP Top 10 aligned)
@@ -131,6 +133,7 @@ This extension is a local GNOME UI client with outbound HTTPS requests to OpenF1
 
 ### A04 Insecure Design
 - Cache-first design reduces API pressure and failure exposure.
+- Standings refreshes are bounded to avoid fetching every historical race/sprint result in one cycle.
 - Explicit refresh policy (daily off-weekend, hourly race weekend).
 - Defensive handling for API 404/429 and canceled sessions.
 - Pending HTTP requests are aborted when the extension is disabled/destroyed.
