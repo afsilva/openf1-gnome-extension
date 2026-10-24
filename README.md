@@ -28,7 +28,12 @@ The previous emoji/flag-based UI is preserved in the [`emoji-ui-preserved`](http
 
 ## Compatibility
 
-- GNOME Shell **50**
+- GNOME Shell **50** — Fedora Linux 44
+- GNOME Shell **51** — Fedora Linux 45
+
+The extension uses the GNOME 45+ ES module format and declares each tested major
+Shell version explicitly in `metadata.json`, as required by GNOME Shell's extension
+version validation.
 
 ---
 
@@ -52,19 +57,28 @@ Validation included GNOME Shell runtime checks with `gnome-extensions`, `gdbus`,
 
 ## Install (local dev)
 
-Clone (or download) this repository anywhere, then run:
+Clone (or download) this repository, change to its root directory, and install
+the current checkout:
 
 ```bash
 cd /path/to/openf1-gnome-extension
 UUID="openf1dashboard@ansilva"
-mkdir -p ~/.local/share/gnome-shell/extensions
-cp -r "$UUID" ~/.local/share/gnome-shell/extensions/
+gnome-extensions disable "$UUID" 2>/dev/null || true
+gnome-extensions pack --force --extra-source=LICENSE "$UUID"
+gnome-extensions install --force "$UUID.shell-extension.zip"
 ```
 
-Enable:
+GNOME Shell caches extension metadata for the life of the Shell process. If this
+installation adds support for your current GNOME major version and the extension
+still appears as `OUT OF DATE`, log out and log back in once. On Wayland, merely
+disabling and enabling an out-of-date extension does not reload changed metadata.
+Do not disable GNOME's extension version validation as a workaround.
+
+After logging back in, enable it:
 
 ```bash
 gnome-extensions enable "$UUID"
+gnome-extensions info "$UUID"
 ```
 
 Disable:
@@ -84,7 +98,7 @@ gnome-extensions enable "$UUID"
 
 ## Package for extensions.gnome.org
 
-The `main` branch is the GNOME-review-ready version. It avoids emoji UI elements, aborts pending HTTP requests on disable, uses asynchronous cache reads in the GNOME Shell process, and fetches championship standings from two fixed Jolpica endpoints.
+The `main` branch is the GNOME-review-ready version for GNOME Shell 50 and 51. It avoids emoji UI elements, aborts pending HTTP requests on disable, uses asynchronous cache reads in the GNOME Shell process, and fetches championship standings from two fixed Jolpica endpoints.
 
 Create the upload bundle from the repository root:
 
