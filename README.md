@@ -1,4 +1,4 @@
-# OpenF1 Dashboard (GNOME 50 Extension)
+# OpenF1 Dashboard (GNOME 50+ Extension)
 
 A GNOME Shell extension that displays:
 
